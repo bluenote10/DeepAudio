@@ -60,16 +60,16 @@ proc train(data: Dataset) =
     #   W_out = (W_in + (2*padding.width) - kernel.width) / stride.width + 1
 
     let cv1 = x.conv2d(cv1_w, cv1_b).relu()      # Conv1: [N, 1, 28, 28] --> [N, 20, 24, 24]     (kernel: 5, padding: 0, strides: 1)
-    let mp1 = cv1.maxpool2D((1,2), (0,0), (1,2)) # Maxpool1: [N, 20, 24, 24] --> [N, 20, 12, 12] (kernel: 2, padding: 0, strides: 2)
+    #let mp1 = cv1.maxpool2D((1,2), (0,0), (1,2)) # Maxpool1: [N, 20, 24, 24] --> [N, 20, 12, 12] (kernel: 2, padding: 0, strides: 2)
 
-    let f = mp1.flatten                          # [N, 50, 4, 4] -> [N, 800]
+    let f = cv1.flatten # mp1.flatten                          # [N, 50, 4, 4] -> [N, 800]
     let hidden = f.linear(fc).relu              # [N, 800]      -> [N, 500]
 
     result = hidden.linear(classifier)           # [N, 500]      -> [N, 10]
 
     echo &"shape of x:      {x.value.shape}"
     echo &"shape of cv1:    {cv1.value.shape}"
-    echo &"shape of mp1:    {mp1.value.shape}"
+    #echo &"shape of mp1:    {mp1.value.shape}"
     echo &"shape of f:      {f.value.shape}"
     echo &"shape of hidden: {hidden.value.shape}"
     echo &"shape of output: {result.value.shape}"
