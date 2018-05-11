@@ -4,6 +4,9 @@ import lenientops
 import math
 import os
 import random
+import sequtils
+
+import arraymancer
 
 randomize(seed=42)
 
@@ -19,13 +22,15 @@ proc midiKeyToFreq*(midiKey: int): float =
 
 
 type
-  AudioChunk = object
-    data: seq[float]
+  SampleType* = float32
+
+  AudioChunk* = object
+    data*: seq[SampleType]
 
 proc len*(audio: AudioChunk): int = audio.data.len
 
 proc normalize*(audio: var AudioChunk, normalizeTo = 1.0) =
-  var max = 0.0
+  var max = SampleType(0)
   for x in audio.data:
     if x.abs > max:
       max = x.abs
@@ -33,7 +38,7 @@ proc normalize*(audio: var AudioChunk, normalizeTo = 1.0) =
     for i in 0 ..< audio.len:
       audio.data[i] /= max
 
-proc addNote*(audio: var AudioChunk, midiKey: int, sampleFrom: int, sampleUpto: int, envelopeLength = 1000) =
+proc addNote*(audio: var AudioChunk, ampData: var seq[float32], midiKey: int, sampleFrom: int, sampleUpto: int, envelopeLength = 1000) =
   doAssert(sampleFrom >= 0)
   doAssert(sampleUpto < audio.len)
 
@@ -49,38 +54,44 @@ proc addNote*(audio: var AudioChunk, midiKey: int, sampleFrom: int, sampleUpto: 
       else:
         (distFromEnds+1) / (envelopeLength+1)
     audio.data[i] += amp * sin(2 * PI * j / period)
+    ampData[i] += amp
     j.inc
 
 
 proc generateSilence*(duration: float): AudioChunk =
   let sampleLength = int(duration * SAMPLE_RATE)
-  return AudioChunk(data: newSeq[float](sampleLength))
+  return AudioChunk(data: newSeq[SampleType](sampleLength))
 
 
 proc generateSine*(freq: float, amp: float, duration: float): AudioChunk =
   let sampleLength = int(duration * SAMPLE_RATE)
   let period = 1.0 / freq * SAMPLE_RATE
 
-  var data = newSeq[float](sampleLength)
+  var data = newSeq[SampleType](sampleLength)
   for i in 0 ..< sampleLength:
     data[i] = amp * sin(2 * PI * i / period)
 
   return AudioChunk(data: data)
 
 
-proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength = 0.1, maxNoteLength = 1.0): AudioChunk =
+proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength = 0.1, maxNoteLength = 1.0): tuple[audio: AudioChunk, target: Tensor[float32]] =
   var audio = generateSilence(duration)
   let maxIndex = audio.len - 1
+
+  let minMidiKey = 21
+  let maxMidiKey = 108
+  var groundTruth = newSeqWith(maxMidiKey - minMidiKey + 1, newSeq[float32](audio.len))
+
   let minNoteLengthSamples = int(minNoteLength * SAMPLE_RATE)
   let maxNoteLengthSamples = int(maxNoteLength * SAMPLE_RATE)
   for i in 0 ..< numNotes:
     let duration = rand(minNoteLengthSamples .. maxNoteLengthSamples)
     let sampleFrom = rand(0 .. maxIndex - minNoteLengthSamples)
     let sampleUpto = min(sampleFrom + duration, audio.len - 1)
-    let midiKey = rand(21 .. 108)
-    audio.addNote(midiKey, sampleFrom, sampleUpto)
+    let midiKey = rand(minMidiKey .. maxMidiKey)
+    audio.addNote(groundTruth[midiKey - minMidiKey], midiKey, sampleFrom, sampleUpto)
   audio.normalize(0.5)
-  return audio
+  return (audio: audio, target: groundTruth.toTensor)
 
 
 template convertSample*(x: float): int16 =
@@ -141,5 +152,5 @@ if isMainModule:
   when false:
     let data = generateSine(440, 1.0, 1.0)
   else:
-    let data = generateRandomNotes(5.0, 100)
+    let (data, _) = generateRandomNotes(5.0, 100)
   data.writeWave("test.wav")
