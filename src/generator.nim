@@ -8,9 +8,9 @@ import sequtils
 
 import arraymancer
 
-randomize(seed=42)
+import audiotypes
 
-const SAMPLE_RATE* = 44_100
+randomize(seed=42)
 
 proc midiKeyToFreq*(midiKey: int): float =
   ## Converts a midi key to frequency
@@ -20,14 +20,6 @@ proc midiKeyToFreq*(midiKey: int): float =
   let keyDiff = midiKey - concertPitchKey
   return pow(2, keyDiff / 12.0) * concertPitchFreq
 
-
-type
-  SampleType* = float32
-
-  AudioChunk* = object
-    data*: seq[SampleType]
-
-proc len*(audio: AudioChunk): int = audio.data.len
 
 proc normalize*(audio: var AudioChunk, normalizeTo = 1.0) =
   var max = SampleType(0)
