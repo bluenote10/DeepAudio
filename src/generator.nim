@@ -12,6 +12,10 @@ import audiotypes
 
 randomize(seed=42)
 
+type
+  Data* = tuple[audio: AudioChunk, target: Tensor[float32]]
+
+
 proc midiKeyToFreq*(midiKey: int): float =
   ## Converts a midi key to frequency
   ## Reference: https://newt.phys.unsw.edu.au/jw/notes.html
@@ -50,9 +54,13 @@ proc addNote*(audio: var AudioChunk, ampData: var seq[float32], midiKey: int, sa
     j.inc
 
 
+proc generateSilenceLength*(sampleLength: int): AudioChunk =
+  return AudioChunk(data: newSeq[SampleType](sampleLength))
+
+
 proc generateSilence*(duration: float): AudioChunk =
   let sampleLength = int(duration * SAMPLE_RATE)
-  return AudioChunk(data: newSeq[SampleType](sampleLength))
+  return generateSilenceLength(sampleLength)
 
 
 proc generateSine*(freq: float, amp: float, duration: float): AudioChunk =
@@ -66,7 +74,7 @@ proc generateSine*(freq: float, amp: float, duration: float): AudioChunk =
   return AudioChunk(data: data)
 
 
-proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength = 0.1, maxNoteLength = 1.0): tuple[audio: AudioChunk, target: Tensor[float32]] =
+proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength = 0.1, maxNoteLength = 1.0): Data =
   var audio = generateSilence(duration)
   let maxIndex = audio.len - 1
 

@@ -32,7 +32,7 @@ proc goldenSectionSearch*(f: (float) -> float; a, b: float; tol=1e-5): float =
 
 
 type
-  TwoPole = object
+  TwoPole* = object
     b0, a1, a2: SampleType
     y_1, y_2: SampleType
 
@@ -70,7 +70,7 @@ proc reset*(filter: var TwoPole) =
   filter.y_2 = 0
 
 
-proc response(filter: TwoPole, freq: float): Complex =
+proc response*(filter: TwoPole, freq: float): Complex =
   let i: Complex = (re: 0.0, im: 1.0)
   let omega = 2 * PI * freq
   let T = 1.0 / SAMPLE_RATE
@@ -80,12 +80,12 @@ proc response(filter: TwoPole, freq: float): Complex =
   result = b0 / (1 + a1*exp(-i*omega*T) + a2*exp(-i*2*omega*T))
 
 
-proc peakFreq(filter: TwoPole): float =
+proc peakFreq*(filter: TwoPole): float =
   let f = goldenSectionSearch((f: float) => -filter.response(f).abs(), 0, SAMPLE_RATE/2)
   f
 
 
-proc twoPole(freq: float, R: float): TwoPole =
+proc twoPole*(freq: float, R: float): TwoPole =
   let T = 1.0 / SAMPLE_RATE # sampling interval
   let theta_c = 2 * PI * freq * T
 
@@ -94,11 +94,11 @@ proc twoPole(freq: float, R: float): TwoPole =
 
   let b0: SampleType = 1.0 # ?
 
-  echo &"a1: ${a1}, a2: ${a2}, b0: ${b0}, theta_c: ${theta_c}, T: ${T}"
+  # echo &"a1: ${a1}, a2: ${a2}, b0: ${b0}, theta_c: ${theta_c}, T: ${T}"
   TwoPole(b0: b0, a1: a1, a2: a2, y_1: 0, y_2: 0)
 
 
-proc twoPoleSearchPeak(freq: float, R: float): TwoPole =
+proc twoPoleSearchPeak*(freq: float, R: float): TwoPole =
   let f = goldenSectionSearch((f: float) => (twoPole(f, R).peakFreq - freq).abs(), 0, SAMPLE_RATE/2)
   twoPole(f, R)
 
