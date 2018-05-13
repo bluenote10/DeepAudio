@@ -1,5 +1,7 @@
 import sequtils
 import sugar
+import math
+import strformat
 
 import audiotypes
 import filters
@@ -61,27 +63,34 @@ proc processEnsemble(data: Data) =
   let maxMidiKey = 108
 
   var dataO = generateSilenceLength(data.audio.len)
-  var output = zeros[float32]([maxMidiKey-minMidiKey+1, data.audio.len])
+  #var output = zeros[float32]([maxMidiKey-minMidiKey+1, data.audio.len])
+  var output = newSeq[seq[float32]](maxMidiKey-minMidiKey+1)
 
   var ensemble = newSeq[TwoPole]()
   var i = 0
   for key in minMidiKey .. maxMidiKey:
     let f = key.midiKeyToFreq()
-    var filter = twoPoleSearchPeak(f, 0.99)
+    var filter = twoPoleSearchPeak(f, 0.9999) # twoPoleSearchPeak(f, 0.999)
     ensemble.add(filter)
 
     filter.process(data.audio, dataO)
-    dataO.normalize()
-    output[i, _] = dataO.data
+    #dataO.normalize()
+    #output[i, _] = dataO.data
+    let rmsChunks = dataO.rmsChunks(chunkSize=512)
+    output[i] = rmsChunks.data # .normalized.data
     i += 1
 
+    echo &"key = {key:5d}    f = {f:10.1f}    max = {rmsChunks.maxAbs:10.3f}    mean = {rmsChunks.mean:10.3f}"
+
   plotTensor(data.target.toSeq2D)
-  plotTensor(output.toSeq2D)
+  #plotTensor(output.toSeq2D)
+  plotTensor(output)
 
 
 
 when isMainModule:
-  let data = generateRandomNotes(0.2, 100)
+  #let data = generateRandomNotes(1.0, 100)
+  let data = generateLinearNotes(1.0)
   processEnsemble(data)
 
 
