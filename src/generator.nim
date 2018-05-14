@@ -5,6 +5,7 @@ import math
 import os
 import random
 import sequtils
+import strformat
 
 import arraymancer
 
@@ -102,16 +103,17 @@ proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength = 0.1, m
 
 
 proc generateLinearNotes*(duration: float, noteRange=DEFAULT_NOTE_RANGE): Data =
-  var audio = generateSilence(duration)
+  echo &"Time per note: {duration / noteRange.numNotes * 1000:.1f} ms"
+  echo &"Period of lowest note: {1 / noteRange.minMidiKey.midiKeyToFreq * 1000:.1f} ms"
 
-  let (minMidiKey, maxMidiKey) = noteRange
+  var audio = generateSilence(duration)
   var groundTruth = newSeqWith(noteRange.numNotes, newSeq[float32](audio.len))
 
   for i in 0 ..< noteRange.numNotes:
     let sampleFrom = (audio.len / noteRange.numNotes * (i)).int
     let sampleUpto = (audio.len / noteRange.numNotes * (i+1)).int - 1
     let midiKey = noteRange.keyAt(i)
-    audio.addNote(groundTruth[midiKey - minMidiKey], midiKey, sampleFrom, sampleUpto, envelopeLength=20)
+    audio.addNote(groundTruth[i], midiKey, sampleFrom, sampleUpto, envelopeLength=20)
   audio.normalize(0.5)
   return (audio: audio, target: groundTruth.toTensor)
 

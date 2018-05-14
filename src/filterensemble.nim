@@ -77,20 +77,21 @@ proc processEnsemble(data: Data) =
     #dataO.normalize()
     #output[i, _] = dataO.data
     let rmsChunks = dataO.rmsChunks(chunkSize=512)
-    output[i] = rmsChunks.data # .normalized.data
+    output[i] = rmsChunks.normalized.data
     i += 1
 
     echo &"key = {key:5d}    f = {f:10.1f}    max = {rmsChunks.maxAbs:10.3f}    mean = {rmsChunks.mean:10.3f}"
 
-  plotTensor(data.target.toSeq2D)
+  #plotTensor(data.target.toSeq2D)
   #plotTensor(output.toSeq2D)
-  #plotTensor(output)
+  plotTensor(output)
 
 
 
 when isMainModule:
-  #let data = generateRandomNotes(1.0, 100)
-  let data = generateLinearNotes(10.0)
+  #let data = generateRandomNotes(10.0, 100)
+  let data = generateLinearNotes(20.0)
+  data.audio.writeWave("linear.wav")
   processEnsemble(data)
 
 
