@@ -104,10 +104,17 @@ proc twoPoleSearchPeak*(freq: float, R: float): TwoPole =
   twoPole(f, R)
 
 
-proc plotMeasurement(freqs: seq[float], ampsMeas: seq[float], ampsTheo: seq[float]) =
+type
+  ResponseMeasurement = tuple[freqs: seq[float], ampsMeas: seq[float], ampsTheo: seq[float]]
+
+
+proc plotMeasurement(measurement: ResponseMeasurement) =
   var p = createSinglePlot()
-  p.plot(freqs, ampsMeas, "-")
-  p.plot(freqs, ampsTheo, "-")
+  p.plot(measurement.freqs, measurement.ampsMeas, "-", label:="measured")
+  p.plot(measurement.freqs, measurement.ampsTheo, "-", label:="theoretical")
+  p.legend()
+  p.xscaleLog()
+  p.yscaleLog()
   p.show()
   p.run()
 
@@ -120,8 +127,8 @@ proc freqRange(f1 = 20f, f2 = 10000f, steps = 1000): seq[float] =
     result.add(f)
 
 
-proc measureFilter*[Filter](filter: var Filter) =
-  let freqs = freqRange()
+proc measureFilter*[Filter](filter: var Filter, f1 = 20f, f2 = 10000f, steps = 1000): ResponseMeasurement =
+  let freqs = freqRange(f1, f2, steps)
 
   const duration = 1.0
 
@@ -137,7 +144,7 @@ proc measureFilter*[Filter](filter: var Filter) =
     let dataI = generateSine(f, 1.0, duration)
     filter.reset()
     filter.process(dataI, dataO)
-    let ampMeas = dataO.meanAbs() * sqrt(2.0)
+    let ampMeas = dataO.rms() * sqrt(2.0)
     let ampTheo = filter.response(f).abs()
     ampsMeas.add(ampMeas)
     ampsTheo.add(ampTheo)
@@ -146,10 +153,32 @@ proc measureFilter*[Filter](filter: var Filter) =
       peakA = ampMeas
 
   echo &"Peak frequency: {peakF} hz (amplitude: {peakA})"
-  plotMeasurement(freqs, ampsMeas, ampsTheo)
+  result = (freqs, ampsMeas, ampsTheo)
+
 
 when isMainModule:
 
-  var filter = twoPoleSearchPeak(440, 0.99)
-  echo &"peak frequency: {filter.peakFreq}"
-  measureFilter(filter)
+  if false:
+    var filter = twoPoleSearchPeak(440, 0.99)
+    echo &"peak frequency: {filter.peakFreq}"
+    let measurement = measureFilter(filter, 10, 20000, 2000)
+    plotMeasurement(measurement)
+
+  if true:
+    var p = createSinglePlot()
+
+    let minMidiKey = 21
+    let maxMidiKey = 22
+    for key in minMidiKey .. maxMidiKey:
+      let f = key.midiKeyToFreq()
+      var filter = twoPoleSearchPeak(f, 0.999) # twoPoleSearchPeak(f, 0.999)
+      let measurement = measureFilter(filter, 20, 4200, 2000)
+      p.plot(measurement.freqs, measurement.ampsMeas, "-")
+      p.plot(measurement.freqs, measurement.ampsTheo, "-")
+
+    p.xscaleLog()
+    p.yscaleLog()
+    p.show()
+    p.run()
+
+

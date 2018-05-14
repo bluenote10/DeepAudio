@@ -70,7 +70,7 @@ proc processEnsemble(data: Data) =
   var i = 0
   for key in minMidiKey .. maxMidiKey:
     let f = key.midiKeyToFreq()
-    var filter = twoPoleSearchPeak(f, 0.9999) # twoPoleSearchPeak(f, 0.999)
+    var filter = twoPoleSearchPeak(f, 0.999) # twoPoleSearchPeak(f, 0.999)
     ensemble.add(filter)
 
     filter.process(data.audio, dataO)
@@ -84,13 +84,13 @@ proc processEnsemble(data: Data) =
 
   plotTensor(data.target.toSeq2D)
   #plotTensor(output.toSeq2D)
-  plotTensor(output)
+  #plotTensor(output)
 
 
 
 when isMainModule:
   #let data = generateRandomNotes(1.0, 100)
-  let data = generateLinearNotes(1.0)
+  let data = generateLinearNotes(10.0)
   processEnsemble(data)
 
 
