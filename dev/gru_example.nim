@@ -63,18 +63,19 @@ proc buildEncoding[T](data: seq[T]): Encoding[T] =
 
 
 proc getTrainingData(words: seq[string], charMap: CharEnc, wordMap: WordEnc): (CharTensor, CharTensor) =
-  let longestWord = words.getLongestWord()
+  let seqLen = words.getLongestWord()
 
-  var X = zeros[float32](words.len, longestWord * charMap.encodingLength)
+  var X = zeros[float32](words.len, seqLen, charMap.encodingLength)
   var Y = zeros[float32](words.len, wordMap.encodingLength)
 
   for i, word in words:
     Y[i, _] = wordMap.map[word].toTensor.reshape(1, wordMap.encodingLength)
     for j, chr in word:
-      X[i, j*charMap.encodingLength ..< (j+1)*charMap.encodingLength] = charMap.map[chr].toTensor.reshape(1, charMap.encodingLength)
+      X[i, j, _] = charMap.map[chr].toTensor.reshape(1, 1, charMap.encodingLength)
 
   echo X
   echo Y
+  return (X, Y)
 
 let words = @[
   "hello",
@@ -87,4 +88,24 @@ let chars = getAllChars(words)
 let charEnc = buildEncoding(chars)
 let wordEnc = buildEncoding(words)
 
-discard getTrainingData(words, charEnc, wordEnc)
+let (Y, X) = getTrainingData(words, charEnc, wordEnc)
+
+let ctx = newContext Tensor[float32]
+
+# one-to-many
+let batchSize = X.shape[0]
+let nHiddenGru = 16
+let nHiddenLin = 32
+let nInput = X.shape[1]
+let nOutput = Y.shape[2]
+let seqLen = words.getLongestWord()
+echo nInput, nOutput
+
+let input = ctx.variable(zeros[float32](batchSize, nInput), requires_grad=true)
+let hiddenGru = ctx.variable(zeros[float32](batchSize, nHiddenGru), requires_grad=true)
+
+let W3 = ctx.variable(randomTensor[float32](3*nHiddenGru, nInput, 1f32) .- 0.5'f32, requires_grad=true)
+let U3 = ctx.variable(randomTensor[float32](3*nHiddenGru, nHiddenGru, 1f32) .- 0.5'f32, requires_grad=true)
+let bW3 = ctx.variable(randomTensor[float32](1, 3*nHiddenGru, 1f32) .- 0.5'f32, requires_grad=true)
+let bU3 = ctx.variable(randomTensor[float32](1, 3*nHiddenGru, 1f32) .- 0.5'f32, requires_grad=true)
+
