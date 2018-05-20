@@ -99,7 +99,7 @@ proc twoPole*(freq: float, R: float, b0 = 1.0): TwoPole =
 proc twoPoleSearchPeak*(peakFreq: float, R: float): TwoPole =
   let resonantFreq = goldenSectionSearch((f: float) => (twoPole(f, R).searchPeakFreq - peakFreq).abs(), 0, SAMPLE_RATE/2)
   let maxAmplitude = twoPole(resonantFreq, R).response(peakFreq).abs()
-  echo &"[twoPoleSearchPeak] peakFreq: {peakFreq:6.1f}    resonantFreq: {resonantFreq:6.1f}    maxAmplitude: {maxAmplitude:6.1f}"
+  # echo &"[twoPoleSearchPeak] peakFreq: {peakFreq:6.1f}    resonantFreq: {resonantFreq:6.1f}    maxAmplitude: {maxAmplitude:6.1f}"
   twoPole(resonantFreq, R, 1/maxAmplitude)
 
 

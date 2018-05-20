@@ -14,7 +14,7 @@ import waveio
 randomize(seed=42)
 
 type
-  Data* = tuple[audio: AudioChunk, target: Tensor[float32]]
+  Data* = tuple[audio: AudioChunk, truth: Tensor[float32]]
   NoteRange* = tuple[minMidiKey: int, maxMidiKey: int]
 
 proc numNotes*(noteRange: NoteRange): int =
@@ -24,7 +24,19 @@ proc keyAt*(noteRange: NoteRange, i: int): int =
   doAssert i < noteRange.numNotes
   noteRange.minMidiKey + i
 
+proc indexOf*(noteRange: NoteRange, midiKey: int): int =
+  doAssert midiKey >= noteRange.minMidiKey
+  doAssert midiKey <= noteRange.maxMidiKey
+  midiKey - noteRange.minMidiKey
+
 const DEFAULT_NOTE_RANGE*: NoteRange = (minMidiKey: 21, maxMidiKey: 108)
+
+
+proc printMemUsage*() =
+  for i in 0 .. 1000:
+    GC_fullCollect()
+  proc niceMem(x: int): string = &"{x / 1024 / 1024:6.1f}"
+  echo &"total mem: {getTotalMem().niceMem()}    occupied mem: {getOccupiedMem().niceMem()}    free mem: {getFreeMem().niceMem()}"
 
 
 proc midiKeyToFreq*(midiKey: int): float =
@@ -36,7 +48,7 @@ proc midiKeyToFreq*(midiKey: int): float =
   return pow(2, keyDiff / 12.0) * concertPitchFreq
 
 
-proc addNote*(audio: var AudioChunk, ampData: var seq[float32], midiKey: int, sampleFrom: int, sampleUpto: int, envelopeLength = 1000) =
+proc addNote*(audio: var AudioChunk, ampData: var Tensor[float32], midiKey: int, sampleFrom: int, sampleUpto: int, envelopeLength = 1000) =
   doAssert(sampleFrom >= 0)
   doAssert(sampleUpto < audio.len)
 
@@ -83,12 +95,15 @@ proc generateSine*(freq: float, amp: float, duration: float): AudioChunk =
   return AudioChunk(data: data)
 
 
-proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength = 0.1, maxNoteLength = 1.0, noteRange=DEFAULT_NOTE_RANGE): Data =
+proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength=0.1, maxNoteLength=1.0, noteRange=DEFAULT_NOTE_RANGE): Data =
   var audio = generateSilence(duration)
   let maxIndex = audio.len - 1
+  printMemUsage()
 
   let (minMidiKey, maxMidiKey) = noteRange
-  var groundTruth = newSeqWith(noteRange.numNotes, newSeq[float32](audio.len))
+  #var groundTruth = newSeqWith(noteRange.numNotes, newSeq[float32](audio.len))
+  var groundTruth = zeros[float32](noteRange.numNotes, audio.len)
+  printMemUsage()
 
   let minNoteLengthSamples = int(minNoteLength * SAMPLE_RATE)
   let maxNoteLengthSamples = int(maxNoteLength * SAMPLE_RATE)
@@ -97,9 +112,12 @@ proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength = 0.1, m
     let sampleFrom = rand(0 .. maxIndex - minNoteLengthSamples)
     let sampleUpto = min(sampleFrom + duration, audio.len - 1)
     let midiKey = rand(minMidiKey .. maxMidiKey)
-    audio.addNote(groundTruth[midiKey - minMidiKey], midiKey, sampleFrom, sampleUpto)
+    var tensorSlice = groundTruth[noteRange.indexOf(midiKey), _].reshape(audio.len)
+    audio.addNote(tensorSlice, midiKey, sampleFrom, sampleUpto)
+
   audio.normalize(0.5)
-  return (audio: audio, target: groundTruth.toTensor)
+  printMemUsage()
+  return (audio: audio, truth: groundTruth)
 
 
 proc generateLinearNotes*(duration: float, noteRange=DEFAULT_NOTE_RANGE): Data =
@@ -107,15 +125,17 @@ proc generateLinearNotes*(duration: float, noteRange=DEFAULT_NOTE_RANGE): Data =
   echo &"Period of lowest note: {1 / noteRange.minMidiKey.midiKeyToFreq * 1000:.1f} ms"
 
   var audio = generateSilence(duration)
-  var groundTruth = newSeqWith(noteRange.numNotes, newSeq[float32](audio.len))
+  var groundTruth = zeros[float32](noteRange.numNotes, audio.len)
 
   for i in 0 ..< noteRange.numNotes:
     let sampleFrom = (audio.len / noteRange.numNotes * (i)).int
     let sampleUpto = (audio.len / noteRange.numNotes * (i+1)).int - 1
     let midiKey = noteRange.keyAt(i)
-    audio.addNote(groundTruth[i], midiKey, sampleFrom, sampleUpto, envelopeLength=20)
+    var tensorSlice = groundTruth[i, _].reshape(audio.len)
+    audio.addNote(tensorSlice, midiKey, sampleFrom, sampleUpto, envelopeLength=20)
+
   audio.normalize(0.5)
-  return (audio: audio, target: groundTruth.toTensor)
+  return (audio: audio, truth: groundTruth)
 
 
 when isMainModule:
@@ -163,8 +183,11 @@ when isMainModule:
       let audio = generateSine(f, 1.0, 1.0)
       echo &"f: {f:10.2f}   rms: {audio.rms:10.6f}    meanAbs: {audio.meanAbs:10.6f}"
 
-  when false:
-    let data = generateSine(440, 1.0, 1.0)
-  else:
-    let (data, _) = generateRandomNotes(5.0, 100)
-  data.writeWave("test.wav")
+  if false:
+    let data = generateRandomNotes(5.0, 100)
+    data.audio.writeWave("test.wav")
+
+  if true:
+    printMemUsage()
+    let data = generateRandomNotes(60.0, 100)
+    printMemUsage()
