@@ -51,7 +51,7 @@ proc toSeq3D*[T](t: Tensor[T]): seq[seq[seq[T]]] =
   # TODO ...
 ]#
 
-proc plotTensor[T](t: seq[seq[T]]) =
+proc plotTensor*[T](t: seq[seq[T]]) =
   var p = createSinglePlot()
   p.imshow(t, aspect := "auto", interpolation := "nearest")
   p.colorbar()
@@ -85,7 +85,7 @@ proc processEnsemble(data: Data, chunkSize=512) =
 
   #plotTensor(data.target.toSeq2D)
   #plotTensor(output.toSeq2D)
-  #plotTensor(output)
+  plotTensor(output)
 
 
 when isMainModule:

@@ -82,11 +82,11 @@ macro debug*(n: varargs[typed]): untyped =
 proc swapEndian[T](x: T): T =
   result = x
   var arr = cast[array[sizeOf(T), char]](result)
-  for i in 0 .. <sizeOf(T) div 2:
+  for i in 0 ..< sizeOf(T) div 2:
     swap(arr[i], arr[sizeOf(T) - 1 - i])
 
-proc debugReadNBytes(s: Stream, n: int) =
-  for i in 0 .. <n:
+proc debugReadNBytes*(s: Stream, n: int) =
+  for i in 0 ..< n:
     debug s.readChar().BiggestInt.toHex(2)
 
 proc skip(s: Stream, n: int) =
