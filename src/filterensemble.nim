@@ -4,13 +4,14 @@ import math
 import strformat
 
 import audiotypes
+import waveio
 import filters
 import generator
 
 import arraymancer
 import matplotlib
 
-
+#[
 proc toSeq2D*[T](t: Tensor[T]): seq[seq[T]] =
   if t.rank != 2:
     raise newException(ValueError, "Tensor must be of rank 2")
@@ -48,7 +49,7 @@ proc toSeq3D*[T](t: Tensor[T]): seq[seq[seq[T]]] =
   )
   ]#
   # TODO ...
-
+]#
 
 proc plotTensor[T](t: seq[seq[T]]) =
   var p = createSinglePlot()
@@ -58,7 +59,7 @@ proc plotTensor[T](t: seq[seq[T]]) =
   p.run()
 
 
-proc processEnsemble(data: Data) =
+proc processEnsemble(data: Data, chunkSize=512) =
   let minMidiKey = 21
   let maxMidiKey = 108
 
@@ -76,7 +77,7 @@ proc processEnsemble(data: Data) =
     filter.process(data.audio, dataO)
     #dataO.normalize()
     #output[i, _] = dataO.data
-    let rmsChunks = dataO.rmsChunks(chunkSize=512)
+    let rmsChunks = dataO.rmsChunks(chunkSize=chunkSize)
     output[i] = rmsChunks.normalized.data
     i += 1
 
@@ -84,14 +85,12 @@ proc processEnsemble(data: Data) =
 
   #plotTensor(data.target.toSeq2D)
   #plotTensor(output.toSeq2D)
-  plotTensor(output)
-
+  #plotTensor(output)
 
 
 when isMainModule:
+
   #let data = generateRandomNotes(10.0, 100)
-  let data = generateLinearNotes(20.0)
+  let data = generateLinearNotes(2 * 60.0)
   data.audio.writeWave("linear.wav")
   processEnsemble(data)
-
-

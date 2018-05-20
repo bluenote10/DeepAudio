@@ -2,7 +2,6 @@ import streams
 import lenientops
 
 import math
-import os
 import random
 import sequtils
 import strformat
@@ -10,6 +9,7 @@ import strformat
 import arraymancer
 
 import audiotypes
+import waveio
 
 randomize(seed=42)
 
@@ -118,60 +118,9 @@ proc generateLinearNotes*(duration: float, noteRange=DEFAULT_NOTE_RANGE): Data =
   return (audio: audio, target: groundTruth.toTensor)
 
 
-template convertSample*(x: float): int16 =
-  ## Converts a float in the range [-1.0, +1.0] to [-32768, +32767]
-  doAssert(x <= +1.0)
-  doAssert(x >= -1.0)
-  int16(x * (high(int16).float + 0.5) - 0.5)
-
-
-proc writeWave*(audio: AudioChunk, filename: string) =
-  ## Simple wave writer
-  ## Reference: http://soundfile.sapp.org/doc/WaveFormat/
-
-  var s = newFileStream(filename, fmWrite)
-
-  let numChannels = 1
-  let sampleRate = 44100
-  let bitsPerSample = 16
-  let byteRate = sampleRate * numChannels * bitsPerSample / 8
-  let blockAlign = numChannels * bitsPerSample / 8
-
-  let audioSize = audio.len * numChannels * int(bitsPerSample / 8)
-  let expectedFilesize = audioSize + 44
-
-  # RIFF header
-  s.write("RIFF")
-  s.write(uint32(expectedFilesize - 8))
-  s.write("WAVE")
-
-  # fmt chunk
-  s.write("fmt ")
-  s.write(uint32(16))           # Subchunk1Size
-  s.write(uint16(1))            # AudioFormat: PCM = 1
-  s.write(uint16(numChannels))  # NumChannels: Mono = 1
-  s.write(uint32(sampleRate))   # SampleRate
-  s.write(uint32(byteRate))     # ByteRate == SampleRate * NumChannels * BitsPerSample/8
-  s.write(uint16(blockAlign))   # BlockAlign == NumChannels * BitsPerSample/8
-  s.write(uint16(bitsPerSample))# BitsPerSample
-
-  let subchunkSize = audio.len * numChannels * bitsPerSample / 8
-  s.write("data")
-  s.write(uint32(subchunkSize)) # Subchunk2Size == NumSamples * NumChannels * BitsPerSample/8
-  for x in audio.data:
-    s.write(convertSample(x))
-
-  s.close()
-  let actualFilesize = getFileSize(filename)
-  doAssert actualFilesize == expectedFilesize
-
-
 when isMainModule:
   import strformat
   import algorithm
-
-  doAssert convertSample(+1.0) == +32767
-  doAssert convertSample(-1.0) == -32768
 
   doAssert midiKeyToFreq(60).int == 261
   doAssert midiKeyToFreq(69).int == 440

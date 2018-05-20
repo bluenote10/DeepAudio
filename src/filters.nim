@@ -80,28 +80,27 @@ proc response*(filter: TwoPole, freq: float): Complex =
   result = b0 / (1 + a1*exp(-i*omega*T) + a2*exp(-i*2*omega*T))
 
 
-proc peakFreq*(filter: TwoPole): float =
+proc searchPeakFreq*(filter: TwoPole): float =
   let f = goldenSectionSearch((f: float) => -filter.response(f).abs(), 0, SAMPLE_RATE/2)
   f
 
 
-proc twoPole*(freq: float, R: float): TwoPole =
+proc twoPole*(freq: float, R: float, b0 = 1.0): TwoPole =
   let T = 1.0 / SAMPLE_RATE # sampling interval
   let theta_c = 2 * PI * freq * T
 
   let a1: SampleType = -2 * R * cos(theta_c)
   let a2: SampleType = R^2
 
-  let b0: SampleType = 1.0 # ?
-
   # echo &"a1: ${a1}, a2: ${a2}, b0: ${b0}, theta_c: ${theta_c}, T: ${T}"
   TwoPole(b0: b0, a1: a1, a2: a2, y_1: 0, y_2: 0)
 
 
-proc twoPoleSearchPeak*(freq: float, R: float): TwoPole =
-  let f = goldenSectionSearch((f: float) => (twoPole(f, R).peakFreq - freq).abs(), 0, SAMPLE_RATE/2)
-  echo &"two pole: max peak @ {freq:6.1f}, resonant freq @ {f:6.1f}"
-  twoPole(f, R)
+proc twoPoleSearchPeak*(peakFreq: float, R: float): TwoPole =
+  let resonantFreq = goldenSectionSearch((f: float) => (twoPole(f, R).searchPeakFreq - peakFreq).abs(), 0, SAMPLE_RATE/2)
+  let maxAmplitude = twoPole(resonantFreq, R).response(peakFreq).abs()
+  echo &"[twoPoleSearchPeak] peakFreq: {peakFreq:6.1f}    resonantFreq: {resonantFreq:6.1f}    maxAmplitude: {maxAmplitude:6.1f}"
+  twoPole(resonantFreq, R, 1/maxAmplitude)
 
 
 type
@@ -160,7 +159,7 @@ when isMainModule:
 
   if false:
     var filter = twoPoleSearchPeak(440, 0.99)
-    echo &"peak frequency: {filter.peakFreq}"
+    echo &"peak frequency: {filter.searchPeakFreq}"
     let measurement = measureFilter(filter, 10, 20000, 2000)
     plotMeasurement(measurement)
 
@@ -168,7 +167,7 @@ when isMainModule:
     var p = createSinglePlot()
 
     let minMidiKey = 21
-    let maxMidiKey = 22
+    let maxMidiKey = 108
     for key in minMidiKey .. maxMidiKey:
       let f = key.midiKeyToFreq()
       var filter = twoPoleSearchPeak(f, 0.999) # twoPoleSearchPeak(f, 0.999)

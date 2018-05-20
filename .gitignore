@@ -7,3 +7,7 @@ nimcache
 /dev/test.html
 
 *.wav
+*.mp3
+*.mp4
+
+imgs/*.png
