@@ -59,6 +59,7 @@ proc processGroundTruth(truth: TensorT, chunkSize=512): TensorT =
       #echo &"{chunkFrom} {chunkUpto} {realChunkSize} {rms}"
       result[keyIndex, chunkIndex] = rms
 
+
 proc lossMSE(a, b: TensorT): float =
   doAssert a.rank == 2
   doAssert b.rank == 2
@@ -88,9 +89,37 @@ proc loadData(): Dataset =
   echo &"loss = {lossMSE(Y, X * Y.mean / X.mean):8.6f} (resonators mean scaled)"
 
 
+iterator batchGenerator(X: TensorT, batchSize=4, seqSize=3): TensorT =
+  let numKeys = X.shape[0]
+  var batch = zeros[float32](batchSize, seqSize, numKeys)
+
+  var i = 0 # == start index of batch
+  block whileLoop:
+    while true:
+      for j in 0 ..< batchSize:
+        if i+j+seqSize > X.shape[1]: # `>` is correct because i+j+seqSize is exclusive
+          break whileLoop
+        batch[j, _, _] = X[_, (i+j)..(i+j+seqSize)].transpose()
+      yield batch
+      i += batchSize
+
+
 proc train() =
   let ctx = newContext(TensorT)
 
 
 when isMainModule:
-  discard loadData()
+  #discard loadData()
+
+  var X: TensorT = zeros[float32](5, 14)
+  for i in 0 ..< X.shape[0]:
+    for j in 0 ..< X.shape[1]:
+      X[i, j] = j.float32 # + (i / 10).float32
+
+  echo X
+  var i = 0
+  for batch in batchGenerator(X):
+    echo batch
+    i += 1
+
+  echo &"Num batches: {i}"
