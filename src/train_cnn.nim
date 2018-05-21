@@ -16,6 +16,9 @@ type
   #Dataset = tuple[x_train: Variable[TensorT], y_train: TensorT]
   Dataset = tuple[X: TensorT, Y: TensorT]
 
+# -----------------------------------------------------------------------------
+# Data preprocessing
+# -----------------------------------------------------------------------------
 
 proc processEnsemble(audio: AudioChunk, chunkSize=512, noteRange=DEFAULT_NOTE_RANGE): TensorT =
   let outputLength = (audio.len / chunkSize).ceil.int
@@ -86,14 +89,11 @@ proc loadData(): Dataset =
   let Y = processGroundTruth(data.truth, chunkSize)
   echo X.shape
   echo Y.shape
-  echo X.mean
-  echo Y.mean
-  echo &"loss = {lossMSE(Y, Y.zeros_like()):8.6f} (zero prediction)"
-  echo &"loss = {lossMSE(Y, Y.ones_like() * Y.mean):8.6f} (mean prediction)"
-  echo &"loss = {lossMSE(Y, X):8.6f} (resonators unscaled)"
-  echo &"loss = {lossMSE(Y, X * Y.mean / X.mean):8.6f} (resonators mean scaled)"
   return (X, Y)
 
+# -----------------------------------------------------------------------------
+# Batch generator
+# -----------------------------------------------------------------------------
 
 iterator batchGenerator(X: TensorT, Y: TensorT, batchSize=4, seqSize=3): (TensorT, TensorT) =
   let numKeys = X.shape[0]
@@ -111,6 +111,15 @@ iterator batchGenerator(X: TensorT, Y: TensorT, batchSize=4, seqSize=3): (Tensor
       yield (batchX, batchY)
       i += batchSize
 
+# -----------------------------------------------------------------------------
+# Simple fully connected model
+# -----------------------------------------------------------------------------
+
+type
+  ModelFC = object
+    lin1, lin2: TensorT
+    numKeys, seqLength: int
+
 
 proc model_fc_forward(X, lin1, lin2: VariableT): VariableT =
   let hidden = X.flatten().linear(lin1).relu()
@@ -122,7 +131,7 @@ proc model_fc_forward(X, lin1, lin2: VariableT): VariableT =
     echo &"shape of result: {result.value.shape}"
 
 
-proc train_fc(data: Dataset, numHidden=200, seqLength=2) =
+proc train_fc(data: Dataset, numHidden=200, seqLength=2): ModelFC =
   let ctx = newContext(TensorT)
 
   let numKeys = data.X.shape[0]
@@ -145,7 +154,7 @@ proc train_fc(data: Dataset, numHidden=200, seqLength=2) =
   var losses = newSeq[float]()
 
   # Learning loop
-  for epoch in 1 .. 100:
+  for epoch in 1 .. 200:
     var lossInEpoch = 0.0
     for batchX, batchY in batchGenerator(data.X, data.Y, batchSize=32, seqSize=seqLength):
 
@@ -166,10 +175,42 @@ proc train_fc(data: Dataset, numHidden=200, seqLength=2) =
       optim.update()
     echo &"loss = {lossInEpoch:10.6f}"
 
-  var p = createSinglePlot()
-  p.plot(toSeq(1 .. losses.len), losses, "-o")
-  p.show()
-  p.run()
+  if false:
+    var p = createSinglePlot()
+    p.plot(toSeq(1 .. losses.len), losses, "-o")
+    p.show()
+    p.run()
+
+  result = ModelFC(lin1: lin1.value, lin2: lin2.value, numKeys: numKeys, seqLength: seqLength)
+
+
+proc predict_fc(model: ModelFC, X: TensorT): TensorT =
+  let ctx = newContext(TensorT)
+  let batchSize = 32
+
+  var output = X.zeros_like()
+
+  # Note: it is crucial that we write the batch outputs with the proper
+  # offset into the final output. Since the model is trained on the Y
+  # slice corresponding to the last index of the sequence, we have to
+  # start at the index (it's not possible to output anything meaningful
+  # for time indices before this index). From there, we can jump in
+  # multiples of batchSize.
+  var i = model.seqLength - 1
+
+  let dummyY = X.zeros_like() # TODO: Y should be optional for batchGenerator?
+  for batchX, batchY in batchGenerator(X, dummyY, batchSize=batchSize, seqSize=model.seqLength):
+    var batchXVar = ctx.variable(batchX)
+    let lin1 = ctx.variable(model.lin1)
+    let lin2 = ctx.variable(model.lin2)
+    let batchOutput = batchXVar.model_fc_forward(lin1, lin2)
+    output[_, i..<i+batchSize] = batchOutput.value.transpose()
+    i += batchSize
+
+  return output
+
+
+
 
 when isMainModule:
 
@@ -196,5 +237,20 @@ when isMainModule:
 
   if true:
     let data = loadData()
-    train_fc(data)
+    let model = train_fc(data)
+    let prediction = model.predict_fc(data.X)
+    let lossTrained = lossMSE(data.Y, prediction)
+
+    block scores:
+      let (X, Y) = data
+      echo &"mean X = {X.mean:8.6f}"
+      echo &"mean Y = {Y.mean:8.6f}"
+      echo &"mean p = {prediction.mean:8.6f}"
+
+      echo &"loss = {lossMSE(Y, Y.zeros_like()):8.6f} (zero prediction)"
+      echo &"loss = {lossMSE(Y, Y.ones_like() * Y.mean):8.6f} (mean prediction)"
+      echo &"loss = {lossMSE(Y, X):8.6f} (resonators unscaled)"
+      echo &"loss = {lossMSE(Y, X * Y.mean / X.mean):8.6f} (resonators mean scaled)"
+      echo &"loss = {lossTrained:8.6f} (model)"
+
 
