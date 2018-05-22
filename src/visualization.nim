@@ -1,4 +1,5 @@
 import cairo
+import arraymancer
 import lenientops
 import sequtils
 import sugar
@@ -8,6 +9,7 @@ import audiotypes
 import waveio
 import filters
 import generator
+import train_cnn
 
 #[
 type
@@ -66,7 +68,7 @@ proc debugDraw(w: World) =
   destroy(s)
 ]#
 
-proc draw(data: seq[float], fn: string) =
+proc draw*(data: seq[SomeFloat], fn: string) =
   let resX = 200.int32
   let resY = 600.int32
 
@@ -86,7 +88,45 @@ proc draw(data: seq[float], fn: string) =
   destroy(s)
 
 
-proc processEnsemble(audio: AudioChunk, chunkSize=512) =
+proc draw*(tensor: TensorT, fn: string) =
+  let resX = tensor.shape[1]
+  let resY = tensor.shape[0]
+
+  let min = tensor.min()
+  let max = tensor.max()
+  echo &"Drawing tensor with min = {min}, max = {max}"
+
+  var s = image_surface_create(FORMAT_ARGB32, resX.int32, resY.int32)
+  var cr = create(s)
+
+  for i in 0 ..< tensor.shape[0]:
+    for j in 0 ..< tensor.shape[1]:
+      cr.rectangle(j.float64, i.float64, 1.float64, 1.float64)
+      let color = tensor[i, j] # (tensor[i, j] - min) / (max - min)
+      cr.set_source_rgb(color, color, color)
+      cr.fill()
+
+  discard write_to_png(s, fn)
+  destroy(cr)
+  destroy(s)
+
+
+proc visualizeTensorSeq(tensor: TensorT) =
+  let min = tensor.min()
+  let max = tensor.max()
+  echo &"Writing images from output tensor of shape {tensor.shape} with min = {min}, max = {max}"
+
+  var data = newSeq[float32](tensor.shape[0])
+  for i in 0 ..< tensor.shape[1]:
+    stdout.write &"{i}\r"
+    stdout.flushFile()
+    # let data = tensor[_, i].toRawSeq()
+    for j in 0 ..< tensor.shape[0]:
+      data[j] = tensor[j, i] # (tensor[j, i] - min) / (max - min)
+    draw(data, &"imgs/img_{i:010d}.png")
+
+
+proc visualizeEnsemble(audio: AudioChunk, chunkSize=512) =
   let minMidiKey = 21
   let maxMidiKey = 108
 
@@ -101,8 +141,6 @@ proc processEnsemble(audio: AudioChunk, chunkSize=512) =
     ensemble.add(filter)
 
     filter.process(audio, dataO)
-    #dataO.normalize()
-    #output[i, _] = dataO.data
     let rmsChunks = dataO.rmsChunks(chunkSize=chunkSize)
     output[i] = rmsChunks.normalized.data
     i += 1
@@ -118,8 +156,24 @@ when isMainModule:
   if false:
     draw(@[0.1, 0.2, 0.3, 0.9, 1.0, 0.5], "test.png")
 
-  if true:
+  if false:
     let data = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
-    processEnsemble(data, chunkSize=44100 div 30)
+    visualizeEnsemble(data, chunkSize=44100 div 30)
+
+  if true:
+    let chunkSize = 44100 div 30
+    let dataT = loadData(chunkSize=chunkSize)
+    let model = train_fc(dataT)
+    let predictionT = model.predict_fc(dataT.X)
+
+    dataT.X.draw("data_X.png")
+    dataT.Y.draw("data_Y.png")
+    predictionT.draw("data_pred.png")
+
+    let audio = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
+    let dataF = processEnsemble(audio, chunkSize=chunkSize)
+    let predictionF = model.predict_fc(dataF)
+    visualizeTensorSeq(predictionF)
+
 
   # ffmpeg -r 30 -i imgs/img_%010d.png -i audio/Sierra\ Hull\ \ Black\ River\ \(OFFICIAL\ VIDEO\).wav -c:v libx264 -c:a aac -pix_fmt yuv420p -crf 23 -r 30 -strict -2 -shortest -y video-from-frames.mp4

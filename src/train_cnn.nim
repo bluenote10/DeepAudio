@@ -7,11 +7,13 @@ import sequtils
 import audiotypes
 import generator
 import filters
+import waveio
 
 import matplotlib
+#import visualization
 
 type
-  TensorT = Tensor[SampleType]
+  TensorT* = Tensor[SampleType]
   VariableT = Variable[TensorT]
   #Dataset = tuple[x_train: Variable[TensorT], y_train: TensorT]
   Dataset = tuple[X: TensorT, Y: TensorT]
@@ -20,7 +22,7 @@ type
 # Data preprocessing
 # -----------------------------------------------------------------------------
 
-proc processEnsemble(audio: AudioChunk, chunkSize=512, noteRange=DEFAULT_NOTE_RANGE): TensorT =
+proc processEnsemble*(audio: AudioChunk, chunkSize=512, noteRange=DEFAULT_NOTE_RANGE): TensorT =
   let outputLength = (audio.len / chunkSize).ceil.int
   result = zeros[SampleType](noteRange.numNotes, outputLength)
 
@@ -38,21 +40,12 @@ proc processEnsemble(audio: AudioChunk, chunkSize=512, noteRange=DEFAULT_NOTE_RA
     result[i, _] = rmsChunks.normalized.data.toTensor.unsqueeze(0)
 
 
-proc processGroundTruth(truth: TensorT, chunkSize=512): TensorT =
+proc processGroundTruth*(truth: TensorT, chunkSize=512): TensorT =
   let numKeys = truth.shape[0]
   let numChunks = (truth.shape[1] / chunkSize).ceil.int
   result = zeros[SampleType](numKeys, numChunks)
 
   for keyIndex in 0 ..< numKeys:
-    #[
-    var i = 0
-    var chunk = 0
-    var ampSum = 0.0
-    while i < truth.shape[1]:
-      if i % chunkSize == chunkSize - 1:
-
-      ampSum += truth[]
-    ]#
     proc limited(x, limit: int): int =
       if x > limit: limit else: x
 
@@ -63,7 +56,14 @@ proc processGroundTruth(truth: TensorT, chunkSize=512): TensorT =
       for i in chunkFrom ..< chunkUpto:
         ampSum += truth[keyIndex, i]
       let realChunkSize = chunkUpto - chunkFrom
-      let rms = (ampSum / realChunkSize) / sqrt(2.0)
+      # TODO: What convention should we use here?
+      # Does the truth vector contain amplitudes or RMS values?
+      # Currently they are amplitudes, but this has the drawback
+      # that we must make an assumption of the underlying waveform
+      # to convert to RMS (dividing by sqrt(2) only appropriate for sine).
+      # Maybe it would be better to assumate the we have RMS values
+      # already.
+      let rms = (ampSum / realChunkSize) # / sqrt(2.0)
       #echo &"{chunkFrom} {chunkUpto} {realChunkSize} {rms}"
       result[keyIndex, chunkIndex] = rms
 
@@ -81,10 +81,10 @@ proc lossMSE(a, b: TensorT): float =
   return sum / N
 
 
-proc loadData(): Dataset =
-  let data = generateRandomNotes(5.0, 100)
+proc loadData*(chunkSize: int): Dataset =
+  let data = generateRandomNotes(30.0, 500)
+  data.audio.writeWave("training_data.wav")
 
-  let chunkSize = 128
   let X = processEnsemble(data.audio, chunkSize)
   let Y = processGroundTruth(data.truth, chunkSize)
   echo X.shape
@@ -117,13 +117,13 @@ iterator batchGenerator(X: TensorT, Y: TensorT, batchSize=4, seqSize=3): (Tensor
 
 type
   ModelFC = object
-    lin1, lin2: TensorT
+    lin1, lin2, bias1, bias2: TensorT
     numKeys, seqLength: int
 
 
-proc model_fc_forward(X, lin1, lin2: VariableT): VariableT =
-  let hidden = X.flatten().linear(lin1).relu()
-  result = hidden.linear(lin2)
+proc model_fc_forward(X, lin1, lin2, bias1, bias2: VariableT): VariableT =
+  let hidden = X.flatten().linear(lin1, bias1) # .relu()
+  result = hidden.linear(lin2, bias2)
   if false:
     echo &"shape of x:      {X.value.shape}"
     echo &"shape of x:      {X.flatten().value.shape}"
@@ -131,7 +131,7 @@ proc model_fc_forward(X, lin1, lin2: VariableT): VariableT =
     echo &"shape of result: {result.value.shape}"
 
 
-proc train_fc(data: Dataset, numHidden=200, seqLength=2): ModelFC =
+proc train_fc*(data: Dataset, numHidden=500, seqLength=2): ModelFC =
   let ctx = newContext(TensorT)
 
   let numKeys = data.X.shape[0]
@@ -146,21 +146,29 @@ proc train_fc(data: Dataset, numHidden=200, seqLength=2): ModelFC =
       randomTensor(numKeys, numHidden, 1'f32) .- 0.5'f32,
       requires_grad = true
     )
+    bias1 = ctx.variable(
+      randomTensor(1, numHidden, 1'f32) .- 0.5'f32,
+      requires_grad = true
+    )
+    bias2 = ctx.variable(
+      randomTensor(1, numKeys, 1'f32) .- 0.5'f32,
+      requires_grad = true
+    )
 
   let optim = newSGD[float32](
-    lin1, lin2, 0.0001f
+    lin1, lin2, bias1, bias2, 0.00005f
   )
 
   var losses = newSeq[float]()
 
   # Learning loop
-  for epoch in 1 .. 200:
+  for epoch in 1 .. 5000:
     var lossInEpoch = 0.0
     for batchX, batchY in batchGenerator(data.X, data.Y, batchSize=32, seqSize=seqLength):
 
       # Running through the network and computing loss
       var batchXVar = ctx.variable(batchX)
-      let output = batchXVar.model_fc_forward(lin1, lin2)
+      let output = batchXVar.model_fc_forward(lin1, lin2, bias1, bias2)
       let loss = output.mse_loss(batchY)
       let lossScalar = loss.value[0]
       # echo &"{batchX.shape} {output.value.shape} {batchY.shape}"
@@ -181,10 +189,17 @@ proc train_fc(data: Dataset, numHidden=200, seqLength=2): ModelFC =
     p.show()
     p.run()
 
-  result = ModelFC(lin1: lin1.value, lin2: lin2.value, numKeys: numKeys, seqLength: seqLength)
+  result = ModelFC(
+    lin1: lin1.value,
+    lin2: lin2.value,
+    bias1: bias1.value,
+    bias2: bias2.value,
+    numKeys: numKeys,
+    seqLength: seqLength
+  )
 
 
-proc predict_fc(model: ModelFC, X: TensorT): TensorT =
+proc predict_fc*(model: ModelFC, X: TensorT): TensorT =
   let ctx = newContext(TensorT)
   let batchSize = 32
 
@@ -203,7 +218,9 @@ proc predict_fc(model: ModelFC, X: TensorT): TensorT =
     var batchXVar = ctx.variable(batchX)
     let lin1 = ctx.variable(model.lin1)
     let lin2 = ctx.variable(model.lin2)
-    let batchOutput = batchXVar.model_fc_forward(lin1, lin2)
+    let bias1 = ctx.variable(model.bias1)
+    let bias2 = ctx.variable(model.bias2)
+    let batchOutput = batchXVar.model_fc_forward(lin1, lin2, bias1, bias2)
     output[_, i..<i+batchSize] = batchOutput.value.transpose()
     i += batchSize
 
@@ -236,10 +253,13 @@ when isMainModule:
     echo &"Num batches: {i}"
 
   if true:
-    let data = loadData()
+    let data = loadData(chunkSize=512)
     let model = train_fc(data)
     let prediction = model.predict_fc(data.X)
     let lossTrained = lossMSE(data.Y, prediction)
+
+    #data.Y.draw("data_target.png")
+    #prediction.draw("data_pred.png")
 
     block scores:
       let (X, Y) = data
