@@ -29,7 +29,9 @@ proc indexOf*(noteRange: NoteRange, midiKey: int): int =
   doAssert midiKey <= noteRange.maxMidiKey
   midiKey - noteRange.minMidiKey
 
+# https://newt.phys.unsw.edu.au/jw/notes.html
 const DEFAULT_NOTE_RANGE*: NoteRange = (minMidiKey: 21, maxMidiKey: 108)
+const GUITAR_NOTE_RANGE*: NoteRange = (minMidiKey: 40, maxMidiKey: 88)
 
 
 proc printMemUsage*() =
