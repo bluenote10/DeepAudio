@@ -3,6 +3,7 @@ import strformat
 import math
 import lenientops
 import sequtils
+import sugar
 
 import audiotypes
 import generator
@@ -10,13 +11,13 @@ import filters
 import waveio
 
 import matplotlib
-#import visualization
 
 type
   TensorT* = Tensor[SampleType]
   VariableT = Variable[TensorT]
   #Dataset = tuple[x_train: Variable[TensorT], y_train: TensorT]
   Dataset = tuple[X: TensorT, Y: TensorT]
+  DatasetGen = () -> Dataset
 
 # -----------------------------------------------------------------------------
 # Data preprocessing
@@ -68,7 +69,7 @@ proc processGroundTruth*(truth: TensorT, chunkSize=512): TensorT =
       result[keyIndex, chunkIndex] = rms
 
 
-proc lossMSE(a, b: TensorT): float =
+proc lossMSE*(a, b: TensorT): float =
   doAssert a.rank == 2
   doAssert b.rank == 2
   doAssert a.shape == b.shape
@@ -79,6 +80,27 @@ proc lossMSE(a, b: TensorT): float =
       sum += diff*diff
   let N = a.shape[0] * a.shape[1]
   return sum / N
+
+
+proc showReferenceLosses*(X, Y, P: TensorT) =
+  ## Compares the loss of a prediction to some trivial esimators
+  let meanX = X.mean
+  let meanY = Y.mean
+  let meanP = P.mean
+  echo &"mean X = {meanX:8.6f}"
+  echo &"mean Y = {meanY:8.6f}"
+  echo &"mean p = {meanP:8.6f}"
+
+  let lossZeroPrediction = lossMSE(Y, Y.zeros_like())
+  let lossMeanPrediction = lossMSE(Y, Y.ones_like() * meanY)
+  let lossResonatorsUnscaled = lossMSE(Y, X)
+  let lossResonatorsScaled = lossMSE(Y, X * meanY / meanX)
+  let lossPrediction = lossMSE(Y, P)
+  echo &"loss = {lossZeroPrediction:8.6f} (zero prediction)"
+  echo &"loss = {lossMeanPrediction:8.6f} (mean prediction)"
+  echo &"loss = {lossResonatorsUnscaled:8.6f} (resonators unscaled)"
+  echo &"loss = {lossResonatorsScaled:8.6f} (resonators mean scaled)"
+  echo &"loss = {lossPrediction:8.6f} (model)"
 
 
 proc loadData*(chunkSize: int): Dataset =
@@ -131,74 +153,6 @@ proc model_fc_forward(X, lin1, lin2, bias1, bias2: VariableT): VariableT =
     echo &"shape of result: {result.value.shape}"
 
 
-proc train_fc*(data: Dataset, numHidden=500, seqLength=2): ModelFC =
-  let ctx = newContext(TensorT)
-
-  let numKeys = data.X.shape[0]
-  let numInput = numKeys * seqLength
-
-  let
-    lin1 = ctx.variable(
-      randomTensor(numHidden, numInput, 1'f32) .- 0.5'f32,
-      requires_grad = true
-    )
-    lin2 = ctx.variable(
-      randomTensor(numKeys, numHidden, 1'f32) .- 0.5'f32,
-      requires_grad = true
-    )
-    bias1 = ctx.variable(
-      randomTensor(1, numHidden, 1'f32) .- 0.5'f32,
-      requires_grad = true
-    )
-    bias2 = ctx.variable(
-      randomTensor(1, numKeys, 1'f32) .- 0.5'f32,
-      requires_grad = true
-    )
-
-  let optim = newSGD[float32](
-    lin1, lin2, bias1, bias2, 0.00005f
-  )
-
-  var losses = newSeq[float]()
-
-  # Learning loop
-  for epoch in 1 .. 5000:
-    var lossInEpoch = 0.0
-    for batchX, batchY in batchGenerator(data.X, data.Y, batchSize=32, seqSize=seqLength):
-
-      # Running through the network and computing loss
-      var batchXVar = ctx.variable(batchX)
-      let output = batchXVar.model_fc_forward(lin1, lin2, bias1, bias2)
-      let loss = output.mse_loss(batchY)
-      let lossScalar = loss.value[0]
-      # echo &"{batchX.shape} {output.value.shape} {batchY.shape}"
-      # echo &"epoch = {epoch:3d}    loss = {lossScalar:10.6f}"
-      losses.add(lossScalar)
-      lossInEpoch += lossScalar
-
-      # Compute the gradient (i.e. contribution of each parameter to the loss)
-      loss.backprop()
-
-      # Correct the weights now that we have the gradient information
-      optim.update()
-    echo &"loss = {lossInEpoch:10.6f}"
-
-  if false:
-    var p = createSinglePlot()
-    p.plot(toSeq(1 .. losses.len), losses, "-o")
-    p.show()
-    p.run()
-
-  result = ModelFC(
-    lin1: lin1.value,
-    lin2: lin2.value,
-    bias1: bias1.value,
-    bias2: bias2.value,
-    numKeys: numKeys,
-    seqLength: seqLength
-  )
-
-
 proc predict_fc*(model: ModelFC, X: TensorT): TensorT =
   let ctx = newContext(TensorT)
   let batchSize = 32
@@ -227,6 +181,85 @@ proc predict_fc*(model: ModelFC, X: TensorT): TensorT =
   return output
 
 
+proc train_fc*(dataGen: DatasetGen, numDatasets=5, numKeys=88, numHidden=500, seqLength=2): ModelFC =
+  let ctx = newContext(TensorT)
+
+  let numInput = numKeys * seqLength
+
+  let
+    lin1 = ctx.variable(
+      randomTensor(numHidden, numInput, 1'f32) .- 0.5'f32,
+      requires_grad = true
+    )
+    lin2 = ctx.variable(
+      randomTensor(numKeys, numHidden, 1'f32) .- 0.5'f32,
+      requires_grad = true
+    )
+    bias1 = ctx.variable(
+      randomTensor(1, numHidden, 1'f32) .- 0.5'f32,
+      requires_grad = true
+    )
+    bias2 = ctx.variable(
+      randomTensor(1, numKeys, 1'f32) .- 0.5'f32,
+      requires_grad = true
+    )
+
+  proc wrapModel(): ModelFC = ModelFC(
+    lin1: lin1.value,
+    lin2: lin2.value,
+    bias1: bias1.value,
+    bias2: bias2.value,
+    numKeys: numKeys,
+    seqLength: seqLength
+  )
+
+  let optim = newSGD[float32](
+    lin1, lin2, bias1, bias2, 0.00005f
+  )
+
+  var losses = newSeq[float]()
+
+  # Learning loop
+  for datasetId in 0 ..< numDatasets:
+    let data = dataGen()
+    doAssert numKeys == data.X.shape[0]
+
+    for epoch in 1 .. 1000:
+      var lossInEpoch = 0.0
+      for batchX, batchY in batchGenerator(data.X, data.Y, batchSize=32, seqSize=seqLength):
+
+        # Running through the network and computing loss
+        var batchXVar = ctx.variable(batchX)
+        let output = batchXVar.model_fc_forward(lin1, lin2, bias1, bias2)
+        let loss = output.mse_loss(batchY)
+        let lossScalar = loss.value[0]
+        # echo &"{batchX.shape} {output.value.shape} {batchY.shape}"
+        # echo &"epoch = {epoch:3d}    loss = {lossScalar:10.6f}"
+        losses.add(lossScalar)
+        lossInEpoch += lossScalar
+
+        # Compute the gradient (i.e. contribution of each parameter to the loss)
+        loss.backprop()
+
+        # Correct the weights now that we have the gradient information
+        optim.update()
+      # echo &"loss = {lossInEpoch:10.6f}"
+      stdout.write &"loss = {lossInEpoch:10.6f}\r"
+      stdout.flushFile()
+
+    echo &"\n *** Results for dataset {datasetId+1}:"
+    showReferenceLosses(data.X, data.Y, wrapModel().predict_fc(data.X))
+
+  echo "Plotting losses..."
+  var p = createSinglePlot()
+  p.plot(toSeq(1 .. losses.len), losses, "-o")
+  p.yscaleLog()
+  p.saveFigure("losses.png")
+  #p.show()
+  p.run()
+
+  result = wrapModel()
+
 
 
 when isMainModule:
@@ -251,26 +284,4 @@ when isMainModule:
       i += 1
 
     echo &"Num batches: {i}"
-
-  if true:
-    let data = loadData(chunkSize=512)
-    let model = train_fc(data)
-    let prediction = model.predict_fc(data.X)
-    let lossTrained = lossMSE(data.Y, prediction)
-
-    #data.Y.draw("data_target.png")
-    #prediction.draw("data_pred.png")
-
-    block scores:
-      let (X, Y) = data
-      echo &"mean X = {X.mean:8.6f}"
-      echo &"mean Y = {Y.mean:8.6f}"
-      echo &"mean p = {prediction.mean:8.6f}"
-
-      echo &"loss = {lossMSE(Y, Y.zeros_like()):8.6f} (zero prediction)"
-      echo &"loss = {lossMSE(Y, Y.ones_like() * Y.mean):8.6f} (mean prediction)"
-      echo &"loss = {lossMSE(Y, X):8.6f} (resonators unscaled)"
-      echo &"loss = {lossMSE(Y, X * Y.mean / X.mean):8.6f} (resonators mean scaled)"
-      echo &"loss = {lossTrained:8.6f} (model)"
-
 
