@@ -2,15 +2,21 @@ import typeinfo
 import streams
 import strformat
 
+import typetraits
+
 
 proc serialize*[T: SomeNumber](s: Stream, x: T) =
   s.write(x)
+  #echo "storing scalar: ", x
+  #echo s.getPosition
 
 proc serialize*(s: Stream, x: string) =
   # For short strings storing an 8 byte length is
   # quite an overhead. Could be optimized.
   s.write(x.len)
   s.write(x)
+  #echo "storing string of length: ", x.len
+  #echo s.getPosition
 
 proc serialize*[T](s: Stream, x: openarray[T]) =
   s.write(x.len)
@@ -18,10 +24,20 @@ proc serialize*[T](s: Stream, x: openarray[T]) =
     s.serialize(x[i])
   # TODO: we could specialize for primitive types:
   # s.writeData(unsafeAddr(x[0]), sizeof(T) * x.len)
+  #echo "storing seq of length: ", x.len
+  #echo s.getPosition
 
 proc serialize*[T: object|tuple](s: Stream, x: T) =
   for field, value in x.fieldPairs:
-    s.write(value)
+    #echo "storing field: ", field
+    #echo "storing field: ", name(field.type)
+    s.serialize(value)
+    #echo s.getPosition
+
+proc serialize*[T: ref object|ref tuple](s: Stream, x: T) =
+  s.serialize(x[])
+  #echo "storing ref object: ", x[]
+  #echo s.getPosition
 
 
 proc newEIO(msg: string): ref IOError =
@@ -47,7 +63,8 @@ proc deserialize*[U](s: Stream, T: typedesc[seq[U]]): seq[U] =
   read[int](s, len)
   result = newSeq[U](len)
   for i in 0 ..< len:
-    read[U](s, result[i])
+    #read[U](s, result[i])
+    result[i] = s.deserialize(U)
   # TODO: we could specialize for primitive types:
   # if readData(s, addr(result[0]), sizeof(U) * len) != sizeof(U) * len:
   #   raise newEIO("cannot read from stream")
@@ -57,14 +74,22 @@ proc deserialize*[N, U](s: Stream, T: typedesc[array[N, U]]): array[N, U] =
   read[int](s, len)
   doAssert len == result.len
   for i in 0 ..< len:
-    read[U](s, result[i])
+    #read[U](s, result[i])
+    result[i] = s.deserialize(U)
   # TODO: we could specialize for primitive types:
   # if readData(s, addr(result[0]), sizeof(U) * len) != sizeof(U) * len:
   #   raise newEIO("cannot read from stream")
 
 proc deserialize*(s: Stream, T: typedesc[object|tuple]): T =
   for field, value in result.fieldPairs:
-    read[value.type](s, value)
+    #read[value.type](s, value)
+    value = s.deserialize(value.type)
+
+proc deserialize*(s: Stream, T: typedesc[ref object|ref tuple]): T =
+  result = T.new
+  for field, value in result[].fieldPairs:
+    #read[value.type](s, value)
+    value = s.deserialize(value.type)
 
 # -----------------------------------------------------------------------------
 # High level API
@@ -101,6 +126,9 @@ when isMainModule:
     type
       TestObject = object
         a, b, c: int
+      TestObjectRef = ref TestObject
+
+    proc `===`(a, b: TestObjectRef): bool = a[] == b[]
 
     var s = newStringStream()
     s.serialize(42)
@@ -109,6 +137,7 @@ when isMainModule:
     s.serialize(@[1, 2, 3])
     s.serialize([1, 2, 3])
     s.serialize(TestObject(a: 1, b: 2, c: 3))
+    s.serialize(TestObjectRef(a: 1, b: 2, c: 3))
 
     echo "------------------"
     echo "Stream content raw:"
@@ -129,12 +158,21 @@ when isMainModule:
     doAssert s.deserialize(seq[int]) == @[1, 2, 3]
     doAssert s.deserialize(array[3, int]) == [1, 2, 3]
     doAssert s.deserialize(TestObject) == TestObject(a: 1, b: 2, c: 3)
+    doAssert s.deserialize(TestObjectRef) === TestObjectRef(a: 1, b: 2, c: 3)
 
   import arraymancer
   import sequtils
 
   block:
     let tensor = toSeq(1 .. 24).toTensor().reshape(2, 3, 4)
+    var s = newStringStream()
+    s.serialize(tensor)
+
+    s.setPosition(0)
+    doAssert s.deserialize(Tensor[int]) == tensor
+
+  block:
+    let tensor = toSeq(1 .. 24).toTensor().reshape(1, 24)
     var s = newStringStream()
     s.serialize(tensor)
 

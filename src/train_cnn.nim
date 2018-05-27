@@ -15,7 +15,7 @@ import matplotlib
 type
   TensorT* = Tensor[SampleType]
   VariableT = Variable[TensorT]
-  #Dataset = tuple[x_train: Variable[TensorT], y_train: TensorT]
+
   Dataset = tuple[X: TensorT, Y: TensorT]
   DatasetGen = () -> Dataset
 
@@ -138,9 +138,17 @@ iterator batchGenerator(X: TensorT, Y: TensorT, batchSize=4, seqSize=3): (Tensor
 # -----------------------------------------------------------------------------
 
 type
-  ModelFC = object
-    lin1, lin2, bias1, bias2: TensorT
-    numKeys, seqLength: int
+  ModelFC* = object
+    lin1*, lin2*, bias1*, bias2*: TensorT
+    numKeys*, seqLength*: int
+
+proc showVars*(m: ModelFC) =
+  echo &"Shape lin1: {m.lin1.shape}"
+  echo &"Shape lin2: {m.lin2.shape}"
+  echo &"Shape bias1: {m.bias1.shape}"
+  echo &"Shape bias2: {m.bias2.shape}"
+  echo &"numKeys: {m.numKeys}"
+  echo &"seqLength: {m.seqLength}"
 
 
 proc model_fc_forward(X, lin1, lin2, bias1, bias2: VariableT): VariableT =
@@ -181,7 +189,7 @@ proc predict_fc*(model: ModelFC, X: TensorT): TensorT =
   return output
 
 
-proc train_fc*(dataGen: DatasetGen, numDatasets=5, numKeys=88, numHidden=500, seqLength=2): ModelFC =
+proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=10, numKeys=88, numHidden=500, seqLength=2): ModelFC =
   let ctx = newContext(TensorT)
 
   let numInput = numKeys * seqLength
@@ -224,7 +232,7 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numKeys=88, numHidden=500, se
     let data = dataGen()
     doAssert numKeys == data.X.shape[0]
 
-    for epoch in 1 .. 1000:
+    for epoch in 1 .. numEpochs:
       var lossInEpoch = 0.0
       for batchX, batchY in batchGenerator(data.X, data.Y, batchSize=32, seqSize=seqLength):
 

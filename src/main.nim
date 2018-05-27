@@ -4,6 +4,7 @@ import lenientops
 import sequtils
 import sugar
 import strformat
+import os
 
 import audiotypes
 import waveio
@@ -11,23 +12,34 @@ import filters
 import generator
 import train_cnn
 import visualization
+import serialization
 
-when isMainModule:
 
-  if false:
+proc main() =
+  let args = commandLineParams()
+  if args.len == 0:
+    echo "Error: no mode specified"
+    quit(1)
+
+  let modes = args
+  let mode = args[0]
+
+  if mode == "train_test":
     let data = loadData(chunkSize=512)
     let model = train_fc(() => data)
     let prediction = model.predict_fc(data.X)
     showReferenceLosses(data.X, data.Y, prediction)
 
-  if false:
+  if mode == "resonator_test":
     let data = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
     visualizeEnsemble(data, chunkSize=44100 div 30)
 
-  if true:
-    let chunkSize = 44100 div 30
+  var model: ModelFC
 
-    let model = train_fc(() => loadData(chunkSize=chunkSize))
+  if "train" in modes:
+    let chunkSize = 44100 div 30
+    model = train_fc(() => loadData(chunkSize=chunkSize))
+    model.showVars()
 
     # create some test data
     let dataT = loadData(chunkSize=chunkSize)
@@ -38,6 +50,13 @@ when isMainModule:
     predictionT.draw("data_pred.png")
     showReferenceLosses(dataT.X, dataT.Y, predictionT)
 
+    model.storeAsFile("models/model.dat")
+
+  if "test" in modes:
+    let chunkSize = 44100 div 30
+    model = restoreFromFile("models/model.dat", ModelFC)
+    model.showVars()
+
     let audio = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
     let dataF = processEnsemble(audio, chunkSize=chunkSize)
     let predictionF = model.predict_fc(dataF)
@@ -47,4 +66,5 @@ when isMainModule:
     visualizeTensorSeq(predictionF)
 
 
-    # ffmpeg -r 30 -i imgs/img_%010d.png -i audio/Sierra\ Hull\ \ Black\ River\ \(OFFICIAL\ VIDEO\).wav -c:v libx264 -c:a aac -pix_fmt yuv420p -crf 23 -r 30 -strict -2 -shortest -y video-from-frames.mp4
+when isMainModule:
+  main()
