@@ -234,7 +234,10 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
 
     for epoch in 1 .. numEpochs:
       var lossInEpoch = 0.0
+      var batchCount = 0
+
       for batchX, batchY in batchGenerator(data.X, data.Y, batchSize=32, seqSize=seqLength):
+        batchCount += 1
 
         # Running through the network and computing loss
         var batchXVar = ctx.variable(batchX)
@@ -251,7 +254,7 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
         optim.update()
 
       # echo &"loss = {lossInEpoch:10.6f}"
-      stdout.write &"loss = {lossInEpoch:10.6f}\r"
+      stdout.write &"epoch: {epoch:6d}   loss: {lossInEpoch / batchCount:10.6f}    [num batches: {batchCount}]\r"
       stdout.flushFile()
 
     echo &"\n *** Results for dataset {datasetId+1}:"

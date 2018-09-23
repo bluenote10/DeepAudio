@@ -1,3 +1,4 @@
+import os
 import cairo
 import arraymancer
 import lenientops
@@ -91,9 +92,16 @@ proc draw*(tensor: TensorT, fn: string) =
 
 
 proc visualizeTensorSeq*(tensor: TensorT) =
+  # TODO:
+  # - make output dir configurable
+  # - add video rendering
+
   let min = tensor.min()
   let max = tensor.max()
   echo &"Writing images from output tensor of shape {tensor.shape} with min = {min}, max = {max}"
+
+  # delete existing images to get clean imgage series
+  discard execShellCmd("rm imgs/img_*.png")
 
   var data = newSeq[float32](tensor.shape[0])
   for i in 0 ..< tensor.shape[1]:

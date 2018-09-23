@@ -59,7 +59,7 @@ proc ampFuncSine(j: int, period: float): float =
   sin(2 * PI * j / period)
 
 proc ampFuncSquare(j: int, period: float): float =
-  if j < period/2: +1.0 else: -1.0
+  if (j.float mod period) < period/2: +1.0 else: -1.0
 
 proc ampFuncSawtooth(j: int, period: float): float =
   (j.float mod period) / period * 2 - 1

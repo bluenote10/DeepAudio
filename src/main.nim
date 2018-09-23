@@ -24,13 +24,16 @@ proc main() =
   let modes = args
   let mode = args[0]
 
+  let chunkSize = 44100 div 30
+  echo &"Using chunksize of {chunkSize} samples, corresponding to chunks of {1000.0 * chunkSize / 44100.0} ms"
+
   if mode == "resonator_test":
     let data = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
     visualizeEnsemble(data, chunkSize=44100 div 30)
 
   if mode == "train_test":
-    let data = loadData(chunkSize=512)
-    let model = train_fc(() => data)
+    let data = loadData(chunkSize=chunkSize)
+    let model = train_fc(() => data, numDatasets=1)
     let prediction = model.predict_fc(data.X)
 
     data.X.draw("data_X.png")
@@ -41,7 +44,6 @@ proc main() =
   var model: ModelFC
 
   if "train" in modes:
-    let chunkSize = 44100 div 30
     model = train_fc(() => loadData(chunkSize=chunkSize))
     model.showVars()
 
@@ -57,7 +59,6 @@ proc main() =
     model.storeAsFile("models/model.dat")
 
   if "test" in modes:
-    let chunkSize = 44100 div 30
     model = restoreFromFile("models/model.dat", ModelFC)
     model.showVars()
 
