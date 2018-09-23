@@ -24,15 +24,19 @@ proc main() =
   let modes = args
   let mode = args[0]
 
+  if mode == "resonator_test":
+    let data = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
+    visualizeEnsemble(data, chunkSize=44100 div 30)
+
   if mode == "train_test":
     let data = loadData(chunkSize=512)
     let model = train_fc(() => data)
     let prediction = model.predict_fc(data.X)
-    showReferenceLosses(data.X, data.Y, prediction)
 
-  if mode == "resonator_test":
-    let data = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
-    visualizeEnsemble(data, chunkSize=44100 div 30)
+    data.X.draw("data_X.png")
+    data.Y.draw("data_Y.png")
+    prediction.draw("data_pred.png")
+    showReferenceLosses(data.X, data.Y, prediction)
 
   var model: ModelFC
 

@@ -83,7 +83,7 @@ proc lossMSE*(a, b: TensorT): float =
 
 
 proc showReferenceLosses*(X, Y, P: TensorT) =
-  ## Compares the loss of a prediction to some trivial esimators
+  ## Compares the loss of a prediction to some trivial estimators
   let meanX = X.mean
   let meanY = Y.mean
   let meanP = P.mean
@@ -189,7 +189,7 @@ proc predict_fc*(model: ModelFC, X: TensorT): TensorT =
   return output
 
 
-proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=10, numKeys=88, numHidden=500, seqLength=2): ModelFC =
+proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, numHidden=500, seqLength=2): ModelFC =
   let ctx = newContext(TensorT)
 
   let numInput = numKeys * seqLength
@@ -222,7 +222,7 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=10, numKeys=88, num
   )
 
   let optim = newSGD[float32](
-    lin1, lin2, bias1, bias2, 0.00005f
+    lin1, lin2, bias1, bias2, 0.000005f
   )
 
   var losses = newSeq[float]()
@@ -246,11 +246,10 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=10, numKeys=88, num
         losses.add(lossScalar)
         lossInEpoch += lossScalar
 
-        # Compute the gradient (i.e. contribution of each parameter to the loss)
+        # backprop + update
         loss.backprop()
-
-        # Correct the weights now that we have the gradient information
         optim.update()
+
       # echo &"loss = {lossInEpoch:10.6f}"
       stdout.write &"loss = {lossInEpoch:10.6f}\r"
       stdout.flushFile()
@@ -260,7 +259,7 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=10, numKeys=88, num
 
   echo "Plotting losses..."
   var p = createSinglePlot()
-  p.plot(toSeq(1 .. losses.len), losses, "-o")
+  p.plot(toSeq(1 .. losses.len), losses, "-")
   p.yscaleLog()
   p.saveFigure("losses.png")
   #p.show()

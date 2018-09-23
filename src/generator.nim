@@ -5,6 +5,7 @@ import math
 import random
 import sequtils
 import strformat
+import sugar
 
 import arraymancer
 
@@ -50,7 +51,26 @@ proc midiKeyToFreq*(midiKey: int): float =
   return pow(2, keyDiff / 12.0) * concertPitchFreq
 
 
-proc addNote*(audio: var AudioChunk, ampData: var Tensor[float32], midiKey: int, sampleFrom: int, sampleUpto: int, envelopeLength = 1000) =
+type
+  EnvelopeMode = enum EnvelopeStart, EnvelopeEnd, EnvelopeBoth
+  AmpFunc = (j: int, period: float) -> float
+
+proc ampFuncSine(j: int, period: float): float =
+  sin(2 * PI * j / period)
+
+proc ampFuncSquare(j: int, period: float): float =
+  if j < period/2: +1.0 else: -1.0
+
+proc ampFuncSawtooth(j: int, period: float): float =
+  (j.float mod period) / period * 2 - 1
+
+proc addNote*(
+    audio: var AudioChunk,
+    ampData: var Tensor[float32],
+    ampFunc: AmpFunc,
+    midiKey: int, sampleFrom: int, sampleUpto: int,
+    envelopeLength = 1000, envelopeMode = EnvelopeEnd) =
+
   doAssert(sampleFrom >= 0)
   doAssert(sampleUpto < audio.len)
 
@@ -59,13 +79,16 @@ proc addNote*(audio: var AudioChunk, ampData: var Tensor[float32], midiKey: int,
 
   var j = 0
   for i in sampleFrom ..< sampleUpto:
-    let distFromEnds = min(i - sampleFrom, sampleUpto - i)
+    let distFromEnds = case envelopeMode:
+      of EnvelopeStart:    i - sampleFrom
+      of EnvelopeEnd:                      sampleUpto - i
+      of EnvelopeBoth: min(i - sampleFrom, sampleUpto - i)
     let amp =
       if distFromEnds >= envelopeLength:
         1.0
       else:
         (distFromEnds+1) / (envelopeLength+1)
-    audio.data[i] += amp * sin(2 * PI * j / period)
+    audio.data[i] += amp * ampFunc(j, period)
     ampData[i] += amp
     j.inc
 
@@ -107,6 +130,12 @@ proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength=0.1, max
   var groundTruth = zeros[float32](noteRange.numNotes, audio.len)
   printMemUsage()
 
+  let ampGens = [
+    ampFuncSine,
+    ampFuncSquare,
+    ampFuncSawtooth,
+  ]
+
   let minNoteLengthSamples = int(minNoteLength * SAMPLE_RATE)
   let maxNoteLengthSamples = int(maxNoteLength * SAMPLE_RATE)
   for i in 0 ..< numNotes:
@@ -114,10 +143,14 @@ proc generateRandomNotes*(duration: float, numNotes: int, minNoteLength=0.1, max
     let sampleFrom = rand(0 .. maxIndex - minNoteLengthSamples)
     let sampleUpto = min(sampleFrom + duration, audio.len - 1)
     let midiKey = rand(minMidiKey .. maxMidiKey)
-    var tensorSlice = groundTruth[noteRange.indexOf(midiKey), _].reshape(audio.len)
-    audio.addNote(tensorSlice, midiKey, sampleFrom, sampleUpto)
 
-  audio.normalize(0.5)
+    let ampGenId = rand(0 ..< ampGens.len)
+    let ampGen = ampGens[ampGenId]
+
+    var tensorSlice = groundTruth[noteRange.indexOf(midiKey), _].reshape(audio.len)
+    audio.addNote(tensorSlice, ampGen, midiKey, sampleFrom, sampleUpto)
+
+  audio.normalize(1.0)
   printMemUsage()
   return (audio: audio, truth: groundTruth)
 
@@ -134,9 +167,9 @@ proc generateLinearNotes*(duration: float, noteRange=DEFAULT_NOTE_RANGE): Data =
     let sampleUpto = (audio.len / noteRange.numNotes * (i+1)).int - 1
     let midiKey = noteRange.keyAt(i)
     var tensorSlice = groundTruth[i, _].reshape(audio.len)
-    audio.addNote(tensorSlice, midiKey, sampleFrom, sampleUpto, envelopeLength=20)
+    audio.addNote(tensorSlice, ampFuncSine, midiKey, sampleFrom, sampleUpto, envelopeLength=20)
 
-  audio.normalize(0.5)
+  audio.normalize(1.0)
   return (audio: audio, truth: groundTruth)
 
 

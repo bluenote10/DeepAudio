@@ -7,16 +7,12 @@ import typetraits
 
 proc serialize*[T: SomeNumber](s: Stream, x: T) =
   s.write(x)
-  #echo "storing scalar: ", x
-  #echo s.getPosition
 
 proc serialize*(s: Stream, x: string) =
   # For short strings storing an 8 byte length is
   # quite an overhead. Could be optimized.
   s.write(x.len)
   s.write(x)
-  #echo "storing string of length: ", x.len
-  #echo s.getPosition
 
 proc serialize*[T](s: Stream, x: openarray[T]) =
   s.write(x.len)
@@ -24,20 +20,13 @@ proc serialize*[T](s: Stream, x: openarray[T]) =
     s.serialize(x[i])
   # TODO: we could specialize for primitive types:
   # s.writeData(unsafeAddr(x[0]), sizeof(T) * x.len)
-  #echo "storing seq of length: ", x.len
-  #echo s.getPosition
 
 proc serialize*[T: object|tuple](s: Stream, x: T) =
   for field, value in x.fieldPairs:
-    #echo "storing field: ", field
-    #echo "storing field: ", name(field.type)
     s.serialize(value)
-    #echo s.getPosition
 
 proc serialize*[T: ref object|ref tuple](s: Stream, x: T) =
   s.serialize(x[])
-  #echo "storing ref object: ", x[]
-  #echo s.getPosition
 
 
 proc newEIO(msg: string): ref IOError =
