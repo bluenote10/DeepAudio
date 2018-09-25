@@ -33,7 +33,7 @@ proc main() =
 
   if mode == "train_test":
     let data = loadData(chunkSize=chunkSize)
-    let model = train_fc(() => data, numDatasets=1)
+    let model = train_fc(() => data, numDatasets=1, numEpochs=100)
     let prediction = model.predict_fc(data.X)
 
     data.X.draw("data_X.png")
@@ -44,7 +44,7 @@ proc main() =
   var model: ModelFC
 
   if "train" in modes:
-    model = train_fc(() => loadData(chunkSize=chunkSize))
+    model = train_fc(() => loadData(chunkSize=chunkSize), numDatasets=10, numEpochs=500)
     model.showVars()
 
     # create some test data
@@ -70,6 +70,26 @@ proc main() =
     predictionF.draw("pitches_prediction.png")
     visualizeTensorSeq(predictionF)
 
+  if "train_py" in modes:
+    model = train_py(() => loadData(chunkSize=chunkSize), numDatasets=10, numEpochs=500)
+
+    # create some test data
+    let dataT = loadData(chunkSize=chunkSize)
+    let predictionT = predict_py(dataT.X)
+
+    dataT.X.draw("data_X.png")
+    dataT.Y.draw("data_Y.png")
+    predictionT.draw("data_pred.png")
+    showReferenceLosses(dataT.X, dataT.Y, predictionT)
+
+  if "test_py" in modes:
+    let audio = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
+    let dataF = processEnsemble(audio, chunkSize=chunkSize)
+    let predictionF = predict_py(dataF)
+
+    dataF.draw("pitches_resonators.png")
+    predictionF.draw("pitches_prediction.png")
+    visualizeTensorSeq(predictionF)
 
 when isMainModule:
   main()

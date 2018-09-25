@@ -2,6 +2,8 @@
 !**/
 !*.*
 
+.idea/
+
 nimcache
 
 /dev/test.html
@@ -12,3 +14,6 @@ nimcache
 
 imgs/*.png
 *.png
+
+*.npy
+*.model

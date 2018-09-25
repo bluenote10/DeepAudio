@@ -4,6 +4,7 @@ import math
 import lenientops
 import sequtils
 import sugar
+import os
 
 import audiotypes
 import generator
@@ -87,19 +88,25 @@ proc showReferenceLosses*(X, Y, P: TensorT) =
   let meanX = X.mean
   let meanY = Y.mean
   let meanP = P.mean
-  echo &"mean X = {meanX:8.6f}"
-  echo &"mean Y = {meanY:8.6f}"
-  echo &"mean p = {meanP:8.6f}"
+  echo &"[X] min: {X.min():8.3f}    mean: {meanX:8.3f}    max: {X.max():8.3f}"
+  echo &"[Y] min: {Y.min():8.3f}    mean: {meanY:8.3f}    max: {Y.max():8.3f}"
+  echo &"[P] min: {P.min():8.3f}    mean: {meanP:8.3f}    max: {P.max():8.3f}"
+
+  # simple linear regression
+  let m = ((X .- meanX) .* (Y .- meanY)).sum() / ((X .- meanX) .* (X .- meanX)).sum()
+  let c = meanY - m * meanX
 
   let lossZeroPrediction = lossMSE(Y, Y.zeros_like())
   let lossMeanPrediction = lossMSE(Y, Y.ones_like() * meanY)
   let lossResonatorsUnscaled = lossMSE(Y, X)
   let lossResonatorsScaled = lossMSE(Y, X * meanY / meanX)
+  let lossResonatorsLinReg = lossMSE(Y, m*X .+ c)
   let lossPrediction = lossMSE(Y, P)
   echo &"loss = {lossZeroPrediction:8.6f} (zero prediction)"
   echo &"loss = {lossMeanPrediction:8.6f} (mean prediction)"
   echo &"loss = {lossResonatorsUnscaled:8.6f} (resonators unscaled)"
   echo &"loss = {lossResonatorsScaled:8.6f} (resonators mean scaled)"
+  echo &"loss = {lossResonatorsLinReg:8.6f} (resonators linear regression)"
   echo &"loss = {lossPrediction:8.6f} (model)"
 
 
@@ -229,6 +236,8 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
 
   # Learning loop
   for datasetId in 0 ..< numDatasets:
+    echo &"\n *** Training on dataset {datasetId+1}:"
+
     let data = dataGen()
     doAssert numKeys == data.X.shape[0]
 
@@ -253,8 +262,9 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
         loss.backprop()
         optim.update()
 
-      # echo &"loss = {lossInEpoch:10.6f}"
-      stdout.write &"epoch: {epoch:6d}   loss: {lossInEpoch / batchCount:10.6f}    [num batches: {batchCount}]\r"
+      if epoch == 1:
+        echo &"loss: {lossInEpoch / batchCount:10.6f}    [initial]"
+      stdout.write &"loss: {lossInEpoch / batchCount:10.6f}    epoch: {epoch:6d}    [num batches: {batchCount}]\r"
       stdout.flushFile()
 
     echo &"\n *** Results for dataset {datasetId+1}:"
@@ -270,6 +280,32 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
 
   result = wrapModel()
 
+
+proc train_py*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, numHidden=500, seqLength=2): ModelFC =
+
+  # Learning loop
+  for datasetId in 0 ..< numDatasets:
+    echo &"\n *** Training on dataset {datasetId+1}:"
+
+    let data = dataGen()
+    doAssert numKeys == data.X.shape[0]
+
+    data.X.write_npy("X.npy")
+    data.Y.write_npy("Y.npy")
+
+    doAssert execShellCmd("./pymodels/model.py --model test.model") == 0
+
+    let pred = read_npy[SampleType]("P.npy")
+
+    echo &"\n *** Results for dataset {datasetId+1}:"
+    showReferenceLosses(data.X, data.Y, pred)
+
+
+proc predict_py*(X: TensorT): TensorT =
+  X.write_npy("X.npy")
+  doAssert execShellCmd("./pymodels/model.py --model test.model --predict-only") == 0
+  let pred = read_npy[SampleType]("P.npy")
+  pred
 
 
 when isMainModule:
