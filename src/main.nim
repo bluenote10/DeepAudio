@@ -27,9 +27,10 @@ proc main() =
   let chunkSize = 44100 div 30
   echo &"Using chunksize of {chunkSize} samples, corresponding to chunks of {1000.0 * chunkSize / 44100.0} ms"
 
-  if mode == "resonator_test":
-    let data = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
-    visualizeEnsemble(data, chunkSize=44100 div 30)
+  # TODO: Replace this by loadWave => createEnsemble => visualizeRoll
+  #if mode == "resonator_test":
+  #  let data = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")
+  #  visualizeEnsemble(data, chunkSize=44100 div 30)
 
   if mode == "train_test":
     let data = loadData(chunkSize=chunkSize)
@@ -89,7 +90,8 @@ proc main() =
 
     dataF.draw("pitches_resonators.png")
     predictionF.draw("pitches_prediction.png")
-    visualizeTensorSeq(predictionF)
+    #visualizeTensorSeq(predictionF)
+    visualizeRoll(predictionF, "./imgs")
 
 when isMainModule:
   main()
