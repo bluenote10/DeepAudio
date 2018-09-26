@@ -7,12 +7,30 @@ import strformat
 import os
 
 import audiotypes
+import datatypes
 import waveio
 import filters
 import generator
 import train_cnn
 import visualization
 import serialization
+
+
+proc loadData*(datasetId: int, chunkSize: int): Dataset =
+  let length = 60.0
+
+  let data =
+    if datasetId mod 2 == 1:
+      generateRandomNotes(length, 500)
+    else:
+      generateLinearNotes(length)
+
+  data.audio.writeWave("training_data.wav")
+
+  let X = processEnsemble(data.audio, chunkSize)
+  let Y = processGroundTruth(data.truth, chunkSize)
+  doAssert X.shape == Y.shape
+  return (X, Y)
 
 
 proc main() =
@@ -33,8 +51,8 @@ proc main() =
   #  visualizeEnsemble(data, chunkSize=44100 div 30)
 
   if mode == "train_test":
-    let data = loadData(chunkSize=chunkSize)
-    let model = train_fc(() => data, numDatasets=1, numEpochs=100)
+    let data = loadData(datasetId=1, chunkSize=chunkSize)
+    let model = train_fc((datasetId) => data, numDatasets=1, numEpochs=100)
     let prediction = model.predict_fc(data.X)
 
     data.X.draw("data_X.png")
@@ -45,19 +63,20 @@ proc main() =
   var model: ModelFC
 
   if "train" in modes:
-    model = train_fc(() => loadData(chunkSize=chunkSize), numDatasets=10, numEpochs=500)
+    model = train_fc((datasetId) => loadData(datasetId, chunkSize=chunkSize), numDatasets=10, numEpochs=500)
     model.showVars()
-
-    # create some test data
-    let dataT = loadData(chunkSize=chunkSize)
-    let predictionT = model.predict_fc(dataT.X)
-
-    dataT.X.draw("data_X.png")
-    dataT.Y.draw("data_Y.png")
-    predictionT.draw("data_pred.png")
-    showReferenceLosses(dataT.X, dataT.Y, predictionT)
-
     model.storeAsFile("models/model.dat")
+
+    # create some data for out-of-sample validation
+    for datasetId in 1 .. 2:
+      echo &"\n *** Validating on dataset {datasetId}:"
+      let data = loadData(datasetId, chunkSize=chunkSize)
+      let pred = model.predict_fc(data.X)
+      showReferenceLosses(data.X, data.Y, pred)
+
+      data.X.draw(&"test_{datasetId:03d}_X.png")
+      data.Y.draw(&"test_{datasetId:03d}_Y.png")
+      pred.draw(&"test_{datasetId:03d}_P.png")
 
   if "test" in modes:
     model = restoreFromFile("models/model.dat", ModelFC)
@@ -72,16 +91,18 @@ proc main() =
     visualizeTensorSeq(predictionF)
 
   if "train_py" in modes:
-    model = train_py(() => loadData(chunkSize=chunkSize), numDatasets=10, numEpochs=500)
+    model = train_py((datasetId) => loadData(datasetId, chunkSize=chunkSize), numDatasets=10, numEpochs=500)
 
-    # create some test data
-    let dataT = loadData(chunkSize=chunkSize)
-    let predictionT = predict_py(dataT.X)
+    # create some data for out-of-sample validation
+    for datasetId in 1 .. 2:
+      echo &"\n *** Validating on dataset {datasetId}:"
+      let data = loadData(datasetId, chunkSize=chunkSize)
+      let pred = predict_py(data.X)
+      showReferenceLosses(data.X, data.Y, pred)
 
-    dataT.X.draw("data_X.png")
-    dataT.Y.draw("data_Y.png")
-    predictionT.draw("data_pred.png")
-    showReferenceLosses(dataT.X, dataT.Y, predictionT)
+      data.X.draw(&"test_{datasetId:03d}_X.png")
+      data.Y.draw(&"test_{datasetId:03d}_Y.png")
+      pred.draw(&"test_{datasetId:03d}_P.png")
 
   if "test_py" in modes:
     let audio = loadWave("audio/Sierra Hull  Black River (OFFICIAL VIDEO).wav")

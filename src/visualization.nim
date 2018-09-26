@@ -9,16 +9,51 @@ import strformat
 import strutils
 
 import audiotypes
+import datatypes
 import waveio
 import filters
 import generator
 import train_cnn
 
-proc getQuantiles(data: TensorT, lower, upper: float): (float, float) =
+
+proc getQuantiles(data: Tensor[SampleType], lower, upper: float): (float, float) =
   var flattenValues = data.data().sorted(system.cmp)
   let rankLower = (flattenValues.len() * lower).int
   let rankUpper = (flattenValues.len() * upper).int
   return (flattenValues[rankLower].float, flattenValues[rankUpper].float)
+
+
+proc setColor(cr: PContext, value: float32) =
+  ## inspired by https://www.particleincell.com/2014/colormap/
+  let f =
+    if value < 0:
+      0.float32
+    elif value > 1:
+      1.float32
+    else:
+      value
+  let a = (1-f) * 4
+  let X = a.floor.int         # integer part
+  var Y = a-X                 # fractional part
+  let (r, g, b) =
+    case X
+    of 0: (1'f32,   Y,       0'f32)
+    of 1: (1'f32-Y, 1'f32,   0'f32)
+    of 2: (0'f32,   1'f32,   Y)
+    of 3: (0'f32,   1'f32-Y, 1'f32)
+    of 4: (0'f32,   0'f32,   1'f32)
+    else: (0'f32, 0'f32, 0'f32)
+  cr.set_source_rgb(r, g, b)
+  #[
+  {
+      case 0: r=255;  g=Y;     b=0;break;
+      case 1: r=255-Y;g=255;   b=0;break;
+      case 2: r=0;    g=255;   b=Y;break;
+      case 3: r=0;    g=255-Y; b=255;break;
+      case 4: r=0;    g=0;     b=255;break;
+  }
+  ctx.fillStyle = "rgb("+r+","+g+","+b+")";
+  ]#
 
 
 proc drawRoll*(data: TensorT, resX: int, resY: int, blockSizeY: int, fn: string) =
@@ -51,7 +86,8 @@ proc drawRoll*(data: TensorT, resX: int, resY: int, blockSizeY: int, fn: string)
         0.5 + resY - y2 - offsetY,  # subtract Y since cooradinate system origin is top left
         0.0 + w,
         0.0 + h)
-      cr.set_source_rgb(value, value, value)
+      #cr.set_source_rgb(value, value, value)
+      cr.setColor(value)
       cr.fill()
       cr.set_line_width(1)
       #cr.set_source_rgb(1, 1, 1)
@@ -72,6 +108,7 @@ proc visualizeRoll*(dataOrig: TensorT, outputDir: string) =
   let numKeys = data.shape[0]
   let N = data.shape[1]
 
+  # TODO normalize to (clipLower, clipUpper)
   let (clipLower, clipUpper) = data.getQuantiles(0.01, 0.99)
   echo &"Writing images from output tensor of shape {data.shape} with min = {clipLower}, max = {clipUpper}"
 

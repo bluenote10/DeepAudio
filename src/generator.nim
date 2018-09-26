@@ -167,7 +167,7 @@ proc generateLinearNotes*(duration: float, noteRange=DEFAULT_NOTE_RANGE): Data =
     let sampleUpto = (audio.len / noteRange.numNotes * (i+1)).int - 1
     let midiKey = noteRange.keyAt(i)
     var tensorSlice = groundTruth[i, _].reshape(audio.len)
-    audio.addNote(tensorSlice, ampFuncSine, midiKey, sampleFrom, sampleUpto, envelopeLength=20)
+    audio.addNote(tensorSlice, ampFuncSawtooth, midiKey, sampleFrom, sampleUpto, envelopeLength=20)
 
   audio.normalize(1.0)
   return (audio: audio, truth: groundTruth)

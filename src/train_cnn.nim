@@ -7,18 +7,14 @@ import sugar
 import os
 
 import audiotypes
+import datatypes
 import generator
 import filters
 import waveio
 
 import matplotlib
+import visualization
 
-type
-  TensorT* = Tensor[SampleType]
-  VariableT = Variable[TensorT]
-
-  Dataset = tuple[X: TensorT, Y: TensorT]
-  DatasetGen = () -> Dataset
 
 # -----------------------------------------------------------------------------
 # Data preprocessing
@@ -69,6 +65,9 @@ proc processGroundTruth*(truth: TensorT, chunkSize=512): TensorT =
       #echo &"{chunkFrom} {chunkUpto} {realChunkSize} {rms}"
       result[keyIndex, chunkIndex] = rms
 
+# -----------------------------------------------------------------------------
+# Scoring
+# -----------------------------------------------------------------------------
 
 proc lossMSE*(a, b: TensorT): float =
   doAssert a.rank == 2
@@ -108,17 +107,6 @@ proc showReferenceLosses*(X, Y, P: TensorT) =
   echo &"loss = {lossResonatorsScaled:8.6f} (resonators mean scaled)"
   echo &"loss = {lossResonatorsLinReg:8.6f} (resonators linear regression)"
   echo &"loss = {lossPrediction:8.6f} (model)"
-
-
-proc loadData*(chunkSize: int): Dataset =
-  let data = generateRandomNotes(30.0, 500)
-  data.audio.writeWave("training_data.wav")
-
-  let X = processEnsemble(data.audio, chunkSize)
-  let Y = processGroundTruth(data.truth, chunkSize)
-  echo X.shape
-  echo Y.shape
-  return (X, Y)
 
 # -----------------------------------------------------------------------------
 # Batch generator
@@ -235,10 +223,10 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
   var losses = newSeq[float]()
 
   # Learning loop
-  for datasetId in 0 ..< numDatasets:
-    echo &"\n *** Training on dataset {datasetId+1}:"
+  for datasetId in 1 .. numDatasets:
+    echo &"\n *** Training on dataset {datasetId}:"
 
-    let data = dataGen()
+    let data = dataGen(datasetId)
     doAssert numKeys == data.X.shape[0]
 
     for epoch in 1 .. numEpochs:
@@ -267,8 +255,12 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
       stdout.write &"loss: {lossInEpoch / batchCount:10.6f}    epoch: {epoch:6d}    [num batches: {batchCount}]\r"
       stdout.flushFile()
 
-    echo &"\n *** Results for dataset {datasetId+1}:"
-    showReferenceLosses(data.X, data.Y, wrapModel().predict_fc(data.X))
+    let pred = wrapModel().predict_fc(data.X)
+    echo &"\n *** Results for dataset {datasetId}:"
+    showReferenceLosses(data.X, data.Y, pred)
+    data.X.draw(&"train_{datasetId:03d}_X.png")
+    data.Y.draw(&"train_{datasetId:03d}_Y.png")
+    pred.draw(&"train_{datasetId:03d}_P.png")
 
   echo "Plotting losses..."
   var p = createSinglePlot()
@@ -284,10 +276,10 @@ proc train_fc*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
 proc train_py*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, numHidden=500, seqLength=2): ModelFC =
 
   # Learning loop
-  for datasetId in 0 ..< numDatasets:
-    echo &"\n *** Training on dataset {datasetId+1}:"
+  for datasetId in 1 .. numDatasets:
+    echo &"\n *** Training on dataset {datasetId}:"
 
-    let data = dataGen()
+    let data = dataGen(datasetId)
     doAssert numKeys == data.X.shape[0]
 
     data.X.write_npy("X.npy")
@@ -296,9 +288,12 @@ proc train_py*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
     doAssert execShellCmd("./pymodels/model.py --model test.model") == 0
 
     let pred = read_npy[SampleType]("P.npy")
-
-    echo &"\n *** Results for dataset {datasetId+1}:"
+    echo &"\n *** Results for dataset {datasetId}:"
     showReferenceLosses(data.X, data.Y, pred)
+    data.X.draw(&"train_{datasetId:03d}_X.png")
+    data.Y.draw(&"train_{datasetId:03d}_Y.png")
+    pred.draw(&"train_{datasetId:03d}_P.png")
+
 
 
 proc predict_py*(X: TensorT): TensorT =
