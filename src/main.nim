@@ -88,7 +88,8 @@ proc main() =
 
     dataF.draw("pitches_resonators.png")
     predictionF.draw("pitches_prediction.png")
-    visualizeTensorSeq(predictionF)
+    #visualizeTensorSeq(predictionF)
+    visualizeRoll(predictionF, "./imgs")
 
   if "train_py" in modes:
     model = train_py((datasetId) => loadData(datasetId, chunkSize=chunkSize), numDatasets=10, numEpochs=500)

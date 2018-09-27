@@ -21,11 +21,21 @@ def get_batch(X, Y, i, batch_size):
     return x, y
 
 
-def init_model(model_path, num_keys):
+def init_model_single_layer(model_path, num_keys):
     model = torch.nn.Linear(in_features=num_keys, out_features=num_keys)
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path))
+    return model
 
+
+def init_model_two_layers(model_path, num_keys, H=100):
+    model = torch.nn.Sequential(
+          torch.nn.Linear(num_keys, H),
+          torch.nn.ReLU(),
+          torch.nn.Linear(H, num_keys),
+    )
+    if os.path.exists(model_path):
+        model.load_state_dict(torch.load(model_path))
     return model
 
 
@@ -33,20 +43,32 @@ def store_model(model_path, model):
     torch.save(model.state_dict(), model_path)
 
 
-def train(model_path):
+def train(model_path, layers=1):
 
     X = np.load("X.npy")
     Y = np.load("Y.npy")
     X = torch.from_numpy(X)
     Y = torch.from_numpy(Y)
 
+    N = X.size(1)
     num_keys = X.size(0)
 
+    perm = torch.randperm(N)
+    X = X[:, perm]
+    Y = Y[:, perm]
+
     # Define model
-    model = init_model(model_path, num_keys)
+    if layers == 1:
+        model = init_model_single_layer(model_path, num_keys)
+    elif layers == 2:
+        model = init_model_two_layers(model_path, num_keys)
+
+    loss_fn = F.smooth_l1_loss
+    #loss_fn = torch.nn.MSELoss(size_average=False)
 
     i = 0
     batch_size = 32
+    learning_rate = 1e-1
     for _ in range(10000):
         # Get data
         batch_x, batch_y = get_batch(X, Y, i, batch_size)
@@ -58,7 +80,7 @@ def train(model_path):
         model.zero_grad()
 
         # Forward pass
-        output = F.smooth_l1_loss(model(batch_x), batch_y)
+        output = loss_fn(model(batch_x), batch_y)
         loss = output.item()
         sys.stdout.write("loss = {}\r".format(loss))
 
@@ -67,16 +89,16 @@ def train(model_path):
 
         # Apply gradients
         for param in model.parameters():
-            param.data.add_(-0.1 * param.grad.data)
+            param.data.add_(-learning_rate * param.grad.data)
 
         # Stop criterion
-        if loss < 1e-3:
-            break
+        #if loss < 1e-3:
+        #    break
 
     batch_x = X.transpose(0, 1)
     batch_y = Y.transpose(0, 1)
     pred = model(batch_x)
-    loss = F.smooth_l1_loss(pred, batch_y)
+    loss = loss_fn(pred, batch_y)
     print("loss = {}".format(loss.item()))
 
     pred = pred.transpose(0, 1)
@@ -85,13 +107,16 @@ def train(model_path):
     store_model(model_path, model)
 
 
-def predict(model_path):
+def predict(model_path, layers=1):
     X = np.load("X.npy")
     X = torch.from_numpy(X)
     num_keys = X.size(0)
 
     # Define model
-    model = init_model(model_path, num_keys)
+    if layers == 1:
+        model = init_model_single_layer(model_path, num_keys)
+    elif layers == 2:
+        model = init_model_two_layers(model_path, num_keys)
 
     batch_x = X.transpose(0, 1)
     pred = model(batch_x)
