@@ -285,7 +285,7 @@ proc train_py*(dataGen: DatasetGen, numDatasets=5, numEpochs=1000, numKeys=88, n
     data.X.write_npy("X.npy")
     data.Y.write_npy("Y.npy")
 
-    #doAssert execShellCmd("rm -f test.model") == 0
+    doAssert execShellCmd("rm -f test.model") == 0
     doAssert execShellCmd("./pymodels/model.py --model test.model") == 0
 
     let pred = read_npy[SampleType]("P.npy")

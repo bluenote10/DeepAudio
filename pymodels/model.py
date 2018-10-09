@@ -12,7 +12,21 @@ import numpy as np
 
 import torch
 import torch.autograd
+import torch.optim as optim
 import torch.nn.functional as F
+
+
+use_cuda = torch.cuda.is_available()
+
+if use_cuda:
+    print('use gpu')
+    dtype = torch.cuda.FloatTensor
+    ltype = torch.cuda.LongTensor
+    device = torch.device('cuda')
+else:
+    dtype = torch.FloatTensor
+    ltype = torch.LongTensor
+    device = torch.device('cpu')
 
 
 def get_batch(X, Y, i, batch_size):
@@ -28,14 +42,23 @@ def init_model_single_layer(model_path, num_keys):
     return model
 
 
-def init_model_two_layers(model_path, num_keys, H=100):
+def init_model_two_layers(model_path, num_keys, H=30):
     model = torch.nn.Sequential(
-          torch.nn.Linear(num_keys, H),
-          torch.nn.ReLU(),
-          torch.nn.Linear(H, num_keys),
-    )
+        #torch.nn.Linear(num_keys, H),
+        #torch.nn.ReLU(),
+        #torch.nn.Linear(H, num_keys),
+        #torch.nn.Sigmoid(),
+        torch.nn.Linear(num_keys, num_keys),
+        torch.nn.Sigmoid(),
+    ).to(device)
+
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path))
+
+    #if use_cuda:
+    #    print("move model to gpu")
+    #    #model.cuda()
+
     return model
 
 
@@ -43,10 +66,14 @@ def store_model(model_path, model):
     torch.save(model.state_dict(), model_path)
 
 
-def train(model_path, layers=1):
+def train(model_path, layers=2):
 
     X = np.load("X.npy")
     Y = np.load("Y.npy")
+    # limit target for cross entropy usage
+    Y[X < 0] = 0
+    Y[X > 1] = 1
+
     X = torch.from_numpy(X)
     Y = torch.from_numpy(Y)
 
@@ -63,21 +90,27 @@ def train(model_path, layers=1):
     elif layers == 2:
         model = init_model_two_layers(model_path, num_keys)
 
-    loss_fn = F.smooth_l1_loss
+    #loss_fn = F.smooth_l1_loss
     #loss_fn = torch.nn.MSELoss(size_average=False)
+    #loss_fn = torch.nn.BCEWithLogitsLoss() # combines sigmoid with binary cross entropy
+    loss_fn = torch.nn.BCELoss()
 
     i = 0
     batch_size = 32
-    learning_rate = 1e-1
+    optimizer = optim.Adam(model.parameters())
+
     for _ in range(10000):
         # Get data
         batch_x, batch_y = get_batch(X, Y, i, batch_size)
+        batch_x = batch_x.to(device)
+        batch_y = batch_y.to(device)
+
         i += batch_size
         if i > X.size(1):
             i = 0
 
         # Reset gradients
-        model.zero_grad()
+        optimizer.zero_grad()
 
         # Forward pass
         output = loss_fn(model(batch_x), batch_y)
@@ -88,8 +121,7 @@ def train(model_path, layers=1):
         output.backward()
 
         # Apply gradients
-        for param in model.parameters():
-            param.data.add_(-learning_rate * param.grad.data)
+        optimizer.step()
 
         # Stop criterion
         #if loss < 1e-3:
@@ -97,17 +129,19 @@ def train(model_path, layers=1):
 
     batch_x = X.transpose(0, 1)
     batch_y = Y.transpose(0, 1)
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
     pred = model(batch_x)
     loss = loss_fn(pred, batch_y)
     print("loss = {}".format(loss.item()))
 
     pred = pred.transpose(0, 1)
-    np.save("P.npy", pred.detach().transpose(0, 1).numpy())
+    np.save("P.npy", pred.cpu().detach().transpose(0, 1).numpy())
 
     store_model(model_path, model)
 
 
-def predict(model_path, layers=1):
+def predict(model_path, layers=2):
     X = np.load("X.npy")
     X = torch.from_numpy(X)
     num_keys = X.size(0)
@@ -119,9 +153,10 @@ def predict(model_path, layers=1):
         model = init_model_two_layers(model_path, num_keys)
 
     batch_x = X.transpose(0, 1)
+    batch_x = batch_x.to(device)
     pred = model(batch_x)
 
-    np.save("P.npy", pred.detach().transpose(0, 1).numpy())
+    np.save("P.npy", pred.cpu().detach().transpose(0, 1).numpy())
 
 
 def parse_args(args=sys.argv[1:]):

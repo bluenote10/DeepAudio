@@ -92,7 +92,7 @@ proc main() =
     visualizeRoll(predictionF, "./imgs")
 
   if "train_py" in modes:
-    model = train_py((datasetId) => loadData(datasetId, chunkSize=chunkSize), numDatasets=10, numEpochs=500)
+    model = train_py((datasetId) => loadData(datasetId, chunkSize=chunkSize), numDatasets=11, numEpochs=500)
 
     # create some data for out-of-sample validation
     for datasetId in 1 .. 2:
