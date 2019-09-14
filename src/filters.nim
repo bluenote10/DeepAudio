@@ -70,18 +70,18 @@ proc reset*(filter: var TwoPole) =
   filter.y_2 = 0
 
 
-proc response*(filter: TwoPole, freq: float): Complex =
-  let i: Complex = (re: 0.0, im: 1.0)
+proc response*(filter: TwoPole, freq: float): Complex[float32] =
+  let i = complex[float32](re=0.0, im=1.0)
   let omega = 2 * PI * freq
   let T = 1.0 / SAMPLE_RATE
   let b0 = filter.b0
   let a1 = filter.a1
   let a2 = filter.a2
-  result = b0 / (1 + a1*exp(-i*omega*T) + a2*exp(-i*2*omega*T))
+  result = b0 / (1.0'f32 + a1*exp(-i*omega*T) + a2*exp(-i*2*omega*T))
 
 
 proc searchPeakFreq*(filter: TwoPole): float =
-  let f = goldenSectionSearch((f: float) => -filter.response(f).abs(), 0, SAMPLE_RATE/2)
+  let f = goldenSectionSearch((f: float) => -filter.response(f).abs().float, 0, SAMPLE_RATE/2)
   f
 
 

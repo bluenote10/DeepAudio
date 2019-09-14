@@ -31,6 +31,7 @@ proc processEnsemble*(audio: AudioChunk, chunkSize=512, noteRange=DEFAULT_NOTE_R
     let i = noteRange.indexOf(key)
     let f = key.midiKeyToFreq()
     var filter = twoPoleSearchPeak(f, 0.999) # twoPoleSearchPeak(f, 0.999)
+    echo &"f = {f:6.1f}    {filter}"
     ensemble.add(filter)
 
     filter.process(audio, dataO)
