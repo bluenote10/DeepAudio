@@ -11,6 +11,7 @@ import sys
 import numpy as np
 
 from midiutil.MidiFile import MIDIFile
+import midi_constants
 
 from scipy.io.wavfile import read
 
@@ -20,6 +21,8 @@ from librosa.core.constantq import cqt
 
 import matplotlib.pyplot as plt
 
+PERCUSSION_CHANNEL = 9
+
 
 class Percussion(object):
     AcousticBassDrum = 35
@@ -27,31 +30,61 @@ class Percussion(object):
     ClosedHiHat = 42
 
 
+class Instrument(object):
+    def __init__(self, track, channel):
+        self.track = track
+        self.channel = channel
+
+
+def setup_instruments(midi_file, instrument_codes):
+    instruments = []
+    i = 0
+    for instrument_code in instrument_codes:
+        if i == PERCUSSION_CHANNEL:
+            continue
+        midi_file.addProgramChange(tracknum=i, channel=i, time=0, program=instrument_code)
+        instruments.append(Instrument(track=i, channel=i))
+        i += 1
+    return instruments
+
+
 def generate_midi():
 
-    # Create the MIDIFile Object with 1 track
-    midi_file = MIDIFile(11)
+    # https://midiutil.readthedocs.io/en/1.2.1/class.html
+    midi_file = MIDIFile(numTracks=16)
 
-    # Tracks are numbered from zero. Times are measured in beats.
-    track = 0
-    time = 0
+    # Setup tempo
+    tempo = 120     # * 4
+    midi_file.addTempo(
+        track=0,    # For MIDI file type 1, the track is actually ignored
+        time=0,
+        tempo=tempo,
+    )
 
-    # Add track name and tempo.
-    midi_file.addTrackName(track, time, "Sample Track")
-    midi_file.addTempo(track, time, 120)
+    # Setup instruments
+    instruments = setup_instruments(midi_file, [
+        midi_constants.PIANO,
+        midi_constants.EPIANO1,
+        midi_constants.NYLON_GUITAR,
+        midi_constants.CLEAN_GUITAR,
+        midi_constants.OVERDRIVEN_GUITAR,
+        midi_constants.OVERDRIVEN_GUITAR,
+        midi_constants.DISTORTION_GUITAR,
+    ])
 
-    # Add a note. addNote expects the following information:
-    track = 10
-    channel = 9
-    pitch = 60
-    time = 0
-    duration = 1
-    volume = 100
+    base_pitch = 60
 
     # Now add the note.
-    for i in range(12):
-        midi_file.addNote(track, 0, pitch+i, time+i, duration, volume)
-        #midi_file.addNote(track, channel, Percussion.ClosedHiHat, time + i, duration, volume)
+    i = 1
+    for instrument in instruments:
+        for j in range(12):
+            volume = 100
+            duration = 1
+            midi_file.addNote(instrument.track, instrument.channel, base_pitch+j, i, duration, volume)
+            i += duration
+
+    #midi_file.addNote(track, PERCUSSION_CHANNEL, Percussion.ClosedHiHat, time + i, duration, volume)
+
     return midi_file
 
 
@@ -69,20 +102,34 @@ def convert_midi(midi_file):
     data = data.astype(float)
     data = (data + 0.5) / 32767.5
 
-    if False:
+    if True:
         sr = 44100
-        data = cqt(data, sr=sr, n_bins=100, bins_per_octave=12, hop_length=2048)
+        bins_per_octave = 48
+        n_octaves = 9
+        n_bins = n_octaves * bins_per_octave
+        # https://librosa.github.io/librosa/generated/librosa.core.cqt.html
+        data = cqt(
+            data,
+            sr=sr,
+            n_bins=n_bins,
+            bins_per_octave=bins_per_octave,
+            hop_length=512,
+            filter_scale=1.0,
+            #sparsity=0.0,
+            tuning=0.0,     # we don't want automatic tuning estimation
+        )
         print(data.shape)
 
         C = np.abs(data)
-        librosa.display.specshow(librosa.amplitude_to_db(C, ref=np.max), sr = sr, x_axis = 'time', y_axis = 'cqt_note')
+        librosa.display.specshow(librosa.amplitude_to_db(C, ref=np.max), sr=sr, x_axis='time', y_axis='cqt_note')
         plt.colorbar(format='%+2.0f dB')
         plt.title('Constant-Q power spectrum')
         plt.tight_layout()
         plt.show()
-        import IPython; IPython.embed()
+        #import IPython; IPython.embed()
+        sys.exit(0)
 
-    if True:
+    if False:
         sample_rate, data = read("output.wav")
         print(data.shape)
 

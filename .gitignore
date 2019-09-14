@@ -2,12 +2,15 @@
 !**/
 !*.*
 
+*.pyc
+
 .idea/
 
 nimcache
 
 /dev/test.html
 
+*.mid
 *.wav
 *.mp3
 *.mp4
