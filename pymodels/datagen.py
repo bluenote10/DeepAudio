@@ -18,6 +18,7 @@ from scipy.io.wavfile import read
 import librosa
 import librosa.display
 from librosa.core.constantq import cqt
+from rainbow import plot_notes
 
 import matplotlib.pyplot as plt
 
@@ -94,7 +95,9 @@ def convert_midi(midi_file):
 
     os.system("fluidsynth -F output_stereo.wav /usr/share/sounds/sf2/FluidR3_GM.sf2 output.mid")
     os.system("sox output_stereo.wav output.wav channels 1")
-    os.system("audacious output.wav")
+    #os.system("audacious output.wav")
+
+    plot_notes(["output.wav"], rows=1, cols=1)
 
     sample_rate, data = read("output.wav")
     print(data.shape)
