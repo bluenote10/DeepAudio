@@ -34,9 +34,72 @@ class Percussion(object):
 
 
 class Instrument(object):
-    def __init__(self, track, channel):
+    def __init__(self, instrument_code, track, channel):
+        self.instrument_code = instrument_code
         self.track = track
         self.channel = channel
+
+
+class Note(object):
+    def __init__(self, instrument, pitch, t, duration):
+        self.instrument = instrument
+        self.pitch = pitch
+        self.t = t
+        self.duration = duration
+
+
+class MidiFileWrapper(object):
+    def __init__(self, tempo=60):
+        # https://midiutil.readthedocs.io/en/1.2.1/class.html
+        self.tempo = tempo
+        self.midi_file = MIDIFile(numTracks=16)
+
+        # Setup tempo
+        self.midi_file.addTempo(
+            track=0,  # For MIDI file type 1, the track is actually ignored
+            time=0,
+            tempo=tempo,
+        )
+
+        self.notes = []
+
+    def add_note(self, instrument, pitch, t, duration, volume=100):
+        self.midi_file.addNote(instrument.track, instrument.channel, pitch, t, duration, volume)
+        self.notes.append(Note(
+            instrument=instrument,
+            pitch=pitch,
+            t=t,
+            duration=duration,
+        ))
+
+    def extract_groundtruth(self, raw_length, sample_rate, hop_length, lowest_note, highest_note, bins_per_note):
+        print("Extracting ground truth for {} notes".format(len(self.notes)))
+        raw_data = np.zeros((highest_note - lowest_note + 1, raw_length)).astype(np.int8)
+
+        def compute_index(beat):
+            t = beat * 60 / self.tempo
+            return int(t * sample_rate)
+
+        for note in self.notes:
+            index_start = compute_index(note.t)
+            index_end = compute_index(note.t + note.duration)
+            # row = np.zeros(raw_length)
+            # row[index_start:index_end] = 1
+
+            assert note.pitch >= lowest_note
+            assert note.pitch <= highest_note
+            row_index = (note.pitch - lowest_note) * bins_per_note
+            # raw_data[row_index, :] = np.max([raw_data[row_index, :], row], axis=0)
+            raw_data[row_index, index_start:index_end] = 1
+
+        # could be optimized, but probably not crucial:
+        # https://stackoverflow.com/questions/15956309/averaging-over-every-n-elements-of-a-numpy-array#comment77786037_15956341
+        group_means = [
+            raw_data[:, i:i+hop_length].mean(axis=1)
+            for i in range(raw_length)[::hop_length]
+        ]
+        groundtruth = np.stack(group_means, axis=1)
+        return groundtruth
 
 
 def setup_instruments(midi_file, instrument_codes):
@@ -46,7 +109,11 @@ def setup_instruments(midi_file, instrument_codes):
         if i == PERCUSSION_CHANNEL:
             continue
         midi_file.addProgramChange(tracknum=i, channel=i, time=0, program=instrument_code)
-        instruments.append(Instrument(track=i, channel=i))
+        instruments.append(Instrument(
+            instrument_code=instrument_code,
+            track=i,
+            channel=i,
+        ))
         i += 1
     return instruments
 
@@ -64,22 +131,9 @@ def setup_default_instruments(midi_file):
     return instruments
 
 
-def init_midi_file(tempo=60):
-    # https://midiutil.readthedocs.io/en/1.2.1/class.html
-    midi_file = MIDIFile(numTracks=16)
-
-    # Setup tempo
-    midi_file.addTempo(
-        track=0,    # For MIDI file type 1, the track is actually ignored
-        time=0,
-        tempo=tempo,
-    )
-    return midi_file
-
-
 def generate_midi_chromatic_sweep():
-    midi_file = init_midi_file(120)
-    instruments = setup_default_instruments(midi_file)
+    mfw = MidiFileWrapper(120)
+    instruments = setup_default_instruments(mfw.midi_file)
 
     base_pitch = 60
     i = 1
@@ -87,16 +141,16 @@ def generate_midi_chromatic_sweep():
         for j in range(12):
             volume = 100
             duration = 1
-            midi_file.addNote(instrument.track, instrument.channel, base_pitch+j, i, duration, volume)
+            mfw.add_note(instrument, base_pitch+j, i, duration, volume)
             i += duration
 
     #midi_file.addNote(track, PERCUSSION_CHANNEL, Percussion.ClosedHiHat, time + i, duration, volume)
-    return midi_file
+    return mfw
 
 
 def generate_midi_random_single_notes():
-    midi_file = init_midi_file(60)
-    instruments = setup_default_instruments(midi_file)
+    mfw = MidiFileWrapper(60)
+    instruments = setup_default_instruments(mfw.midi_file)
 
     t = 0.0
     while t < 60:
@@ -104,10 +158,10 @@ def generate_midi_random_single_notes():
         volume = 100
         duration = np.random.uniform(0.075, 0.5)
         pitch = np.random.randint(60 - 24, 60 + 24)
-        midi_file.addNote(instrument.track, instrument.channel, pitch, t, duration, volume)
+        mfw.add_note(instrument, pitch, t, duration, volume)
         t += duration + np.random.uniform(0.0, 0.1)
 
-    return midi_file
+    return mfw
 
 
 def read_wave(filename):
@@ -119,9 +173,9 @@ def read_wave(filename):
     return sample_rate, wave_data
 
 
-def convert_midi(midi_file, audio_preview=False, use_cqt=True):
+def convert_midi(mfw, audio_preview=False, use_cqt=True):
     with open("output.mid", 'wb') as f_binary:
-        midi_file.writeFile(f_binary)
+        mfw.midi_file.writeFile(f_binary)
 
     os.system("fluidsynth -F output_stereo.wav /usr/share/sounds/sf2/FluidR3_GM.sf2 output.mid")
     os.system("sox output_stereo.wav output.wav channels 1")
@@ -132,16 +186,19 @@ def convert_midi(midi_file, audio_preview=False, use_cqt=True):
     sr, wave_data = read_wave("output.wav")
 
     if use_cqt:
-        bins_per_octave = 48
+        bins_per_note = 4
+        bins_per_octave = 12 * bins_per_note
         n_octaves = 9
         n_bins = n_octaves * bins_per_octave
         hop_length = 512
-        fmin = librosa.note_to_hz('C1')     # cqt default
+        lowest_note_name = "C1"  # cqt default
+        lowest_note_hz = librosa.note_to_hz(lowest_note_name)
+        lowest_note_midi = librosa.note_to_midi(lowest_note_name)
         # https://librosa.github.io/librosa/generated/librosa.core.cqt.html
         C = cqt(
             wave_data,
             sr=sr,
-            fmin=fmin,
+            fmin=lowest_note_hz,
             n_bins=n_bins,
             bins_per_octave=bins_per_octave,
             hop_length=hop_length,
@@ -160,22 +217,57 @@ def convert_midi(midi_file, audio_preview=False, use_cqt=True):
         print("Shape transformed: {} [{}, {:.1f} MB]".format(
             mag.shape, mag.dtype, mag.nbytes / 1e6))
 
-        plots = ["default", "rainbow"]
+        # Groundtruth extraction with same shape
+        groundtruth = mfw.extract_groundtruth(
+            raw_length=len(wave_data),
+            sample_rate=sr,
+            lowest_note=lowest_note_midi,
+            highest_note=lowest_note_midi + n_octaves * bins_per_octave - 1,
+            hop_length=hop_length,
+            bins_per_note=4,
+        )
+
+        #plots = ["default", "rainbow", "gt"]
+        plots = ["gt"]
         for plot in plots:
-            fig, ax = plt.subplots(1, 1, figsize=(16, 10))
             if plot == "rainbow":
+                fig, ax = plt.subplots(1, 1, figsize=(16, 10))
                 rainbow.plot_rainbow(ax, C)
-            else:
+            elif plot == "gt":
+                fig, axes = plt.subplots(2, 1, figsize=(16, 10), sharex=True, sharey=True)
                 librosa.display.specshow(
                     librosa.amplitude_to_db(mag, ref=np.max),
                     sr=sr,
-                    fmin=fmin,
+                    fmin=lowest_note_hz,
+                    hop_length=hop_length,
+                    bins_per_octave=bins_per_octave,
+                    x_axis='time',
+                    y_axis='cqt_note',
+                    ax=axes[0],
+                )
+                librosa.display.specshow(
+                    groundtruth,
+                    sr=sr,
+                    fmin=lowest_note_hz,
+                    hop_length=hop_length,
+                    bins_per_octave=bins_per_octave,
+                    x_axis='time',
+                    y_axis='cqt_note',
+                    ax=axes[1],
+                )
+            else:
+                fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+                librosa.display.specshow(
+                    librosa.amplitude_to_db(mag, ref=np.max),
+                    sr=sr,
+                    fmin=lowest_note_hz,
                     hop_length=hop_length,
                     bins_per_octave=bins_per_octave,
                     x_axis='time',
                     y_axis='cqt_note',
                 )
                 plt.colorbar(format='%+2.0f dB')
+
             fig.tight_layout()
 
         if len(plots) > 0:
@@ -196,7 +288,7 @@ def convert_midi(midi_file, audio_preview=False, use_cqt=True):
 def main():
     #midi_file = generate_midi_chromatic_sweep()
     midi_file = generate_midi_random_single_notes()
-    convert_midi(midi_file, audio_preview=True)
+    convert_midi(midi_file, audio_preview=False)
 
 
 if __name__ == "__main__":
