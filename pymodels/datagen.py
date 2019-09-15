@@ -7,6 +7,7 @@ from __future__ import division, print_function
 
 import argparse
 import os
+import random
 import sys
 import numpy as np
 
@@ -50,19 +51,7 @@ def setup_instruments(midi_file, instrument_codes):
     return instruments
 
 
-def generate_midi():
-
-    # https://midiutil.readthedocs.io/en/1.2.1/class.html
-    midi_file = MIDIFile(numTracks=16)
-
-    # Setup tempo
-    tempo = 120     # * 4
-    midi_file.addTempo(
-        track=0,    # For MIDI file type 1, the track is actually ignored
-        time=0,
-        tempo=tempo,
-    )
-
+def setup_default_instruments(midi_file):
     # Setup instruments
     instruments = setup_instruments(midi_file, [
         midi_constants.PIANO,
@@ -70,13 +59,29 @@ def generate_midi():
         midi_constants.NYLON_GUITAR,
         midi_constants.CLEAN_GUITAR,
         midi_constants.OVERDRIVEN_GUITAR,
-        midi_constants.OVERDRIVEN_GUITAR,
         midi_constants.DISTORTION_GUITAR,
     ])
+    return instruments
+
+
+def init_midi_file(tempo=60):
+    # https://midiutil.readthedocs.io/en/1.2.1/class.html
+    midi_file = MIDIFile(numTracks=16)
+
+    # Setup tempo
+    midi_file.addTempo(
+        track=0,    # For MIDI file type 1, the track is actually ignored
+        time=0,
+        tempo=tempo,
+    )
+    return midi_file
+
+
+def generate_midi_chromatic_sweep():
+    midi_file = init_midi_file(120)
+    instruments = setup_default_instruments(midi_file)
 
     base_pitch = 60
-
-    # Now add the note.
     i = 1
     for instrument in instruments:
         for j in range(12):
@@ -86,6 +91,21 @@ def generate_midi():
             i += duration
 
     #midi_file.addNote(track, PERCUSSION_CHANNEL, Percussion.ClosedHiHat, time + i, duration, volume)
+    return midi_file
+
+
+def generate_midi_random_single_notes():
+    midi_file = init_midi_file(60)
+    instruments = setup_default_instruments(midi_file)
+
+    t = 0.0
+    while t < 60:
+        instrument = random.choice(instruments)
+        volume = 100
+        duration = np.random.uniform(0.075, 0.5)
+        pitch = np.random.randint(60 - 24, 60 + 24)
+        midi_file.addNote(instrument.track, instrument.channel, pitch, t, duration, volume)
+        t += duration + np.random.uniform(0.0, 0.1)
 
     return midi_file
 
@@ -174,8 +194,9 @@ def convert_midi(midi_file, audio_preview=False, use_cqt=True):
 
 
 def main():
-    midi_file = generate_midi()
-    convert_midi(midi_file)
+    #midi_file = generate_midi_chromatic_sweep()
+    midi_file = generate_midi_random_single_notes()
+    convert_midi(midi_file, audio_preview=True)
 
 
 if __name__ == "__main__":
