@@ -21,6 +21,8 @@ import librosa.display
 from librosa.core.constantq import cqt
 import rainbow
 
+import utils
+
 import matplotlib.pyplot as plt
 
 
@@ -164,6 +166,16 @@ def generate_midi_random_single_notes():
     return mfw
 
 
+def store_midi_and_wave(midi_file, path_midi, path_wave):
+    print("Writing MIDI: {}".format(path_midi))
+    with open(path_midi, 'wb') as f_binary:
+        midi_file.writeFile(f_binary)
+
+    print("Writing WAVE: {}".format(path_wave))
+    os.system("fluidsynth -F /tmp/output_stereo.wav /usr/share/sounds/sf2/FluidR3_GM.sf2 '{}'".format(path_midi))
+    os.system("sox /tmp/output_stereo.wav '{}' channels 1".format(path_wave))
+
+
 def read_wave(filename):
     sample_rate, wave_data = read(filename)
 
@@ -173,17 +185,17 @@ def read_wave(filename):
     return sample_rate, wave_data
 
 
-def convert_midi(mfw, audio_preview=False, use_cqt=True):
-    with open("output.mid", 'wb') as f_binary:
-        mfw.midi_file.writeFile(f_binary)
+def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True):
+    utils.ensure_parent_exists(base_path)
 
-    os.system("fluidsynth -F output_stereo.wav /usr/share/sounds/sf2/FluidR3_GM.sf2 output.mid")
-    os.system("sox output_stereo.wav output.wav channels 1")
+    path_midi = "{}.mid".format(base_path)
+    path_wave = "{}.wav".format(base_path)
+    store_midi_and_wave(mfw.midi_file, path_midi, path_wave)
 
     if audio_preview:
-        os.system("audacious output.wav &")
+        os.system("audacious '{}' &".format(path_wave))
 
-    sr, wave_data = read_wave("output.wav")
+    sr, wave_data = read_wave(path_wave)
 
     if use_cqt:
         bins_per_note = 4
@@ -286,9 +298,13 @@ def convert_midi(mfw, audio_preview=False, use_cqt=True):
 
 
 def main():
-    #midi_file = generate_midi_chromatic_sweep()
-    midi_file = generate_midi_random_single_notes()
-    convert_midi(midi_file, audio_preview=False)
+    training_data_dir = utils.path_rel_to_base("data")
+    output_path = os.path.join(training_data_dir, "train", "dataset_001")
+
+    midi_file = generate_midi_chromatic_sweep()
+    #midi_file = generate_midi_random_single_notes()
+
+    generate_dataset(midi_file, output_path, audio_preview=False)
 
 
 if __name__ == "__main__":
