@@ -3,7 +3,7 @@
 Datagen
 """
 
-from __future__ import print_function
+from __future__ import division, print_function
 
 import argparse
 import os
@@ -18,9 +18,10 @@ from scipy.io.wavfile import read
 import librosa
 import librosa.display
 from librosa.core.constantq import cqt
-from rainbow import plot_notes
+import rainbow
 
 import matplotlib.pyplot as plt
+
 
 PERCUSSION_CHANNEL = 9
 
@@ -89,67 +90,87 @@ def generate_midi():
     return midi_file
 
 
-def convert_midi(midi_file):
+def read_wave(filename):
+    sample_rate, wave_data = read(filename)
+
+    wave_data = wave_data.astype(np.float32)
+    wave_data = (wave_data + 0.5) / 32767.5
+
+    return sample_rate, wave_data
+
+
+def convert_midi(midi_file, audio_preview=False, use_cqt=True):
     with open("output.mid", 'wb') as f_binary:
         midi_file.writeFile(f_binary)
 
     os.system("fluidsynth -F output_stereo.wav /usr/share/sounds/sf2/FluidR3_GM.sf2 output.mid")
     os.system("sox output_stereo.wav output.wav channels 1")
-    #os.system("audacious output.wav")
 
-    plot_notes(["output.wav"], rows=1, cols=1)
+    if audio_preview:
+        os.system("audacious output.wav &")
 
-    sample_rate, data = read("output.wav")
-    print(data.shape)
+    sr, wave_data = read_wave("output.wav")
 
-    data = data.astype(float)
-    data = (data + 0.5) / 32767.5
-
-    if True:
-        sr = 44100
+    if use_cqt:
         bins_per_octave = 48
         n_octaves = 9
         n_bins = n_octaves * bins_per_octave
+        hop_length = 512
+        fmin = librosa.note_to_hz('C1')     # cqt default
         # https://librosa.github.io/librosa/generated/librosa.core.cqt.html
-        data = cqt(
-            data,
+        C = cqt(
+            wave_data,
             sr=sr,
+            fmin=fmin,
             n_bins=n_bins,
             bins_per_octave=bins_per_octave,
-            hop_length=512,
+            hop_length=hop_length,
             filter_scale=1.0,
             #sparsity=0.0,
             tuning=0.0,     # we don't want automatic tuning estimation
         )
-        print(data.shape)
+        mag, phase = librosa.core.magphase(C)
+        mag = mag.astype(np.float32)
+        # 16th notes at 200 bpm are 800 notes/min = 13.3 notes/sec => note duration = 75 ms
+        print("Sample rate: {}".format(sr))
+        print("Hop duration: {:.1f} ms".format(hop_length / sr * 1000))
+        print("Length audio: {:.1f} sec".format(len(wave_data) / sr))
+        print("Shape audio:       {} [{}, {:.1f} MB]".format(
+            wave_data.shape, wave_data.dtype, wave_data.nbytes / 1e6))
+        print("Shape transformed: {} [{}, {:.1f} MB]".format(
+            mag.shape, mag.dtype, mag.nbytes / 1e6))
 
-        C = np.abs(data)
-        librosa.display.specshow(librosa.amplitude_to_db(C, ref=np.max), sr=sr, x_axis='time', y_axis='cqt_note')
-        plt.colorbar(format='%+2.0f dB')
-        plt.title('Constant-Q power spectrum')
-        plt.tight_layout()
-        plt.show()
-        #import IPython; IPython.embed()
-        sys.exit(0)
+        plots = ["default", "rainbow"]
+        for plot in plots:
+            fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+            if plot == "rainbow":
+                rainbow.plot_rainbow(ax, C)
+            else:
+                librosa.display.specshow(
+                    librosa.amplitude_to_db(mag, ref=np.max),
+                    sr=sr,
+                    fmin=fmin,
+                    hop_length=hop_length,
+                    bins_per_octave=bins_per_octave,
+                    x_axis='time',
+                    y_axis='cqt_note',
+                )
+                plt.colorbar(format='%+2.0f dB')
+            fig.tight_layout()
 
-    if False:
-        sample_rate, data = read("output.wav")
-        print(data.shape)
+        if len(plots) > 0:
+            plt.show()
 
-        data = data.astype(float)
-        data = (data + 0.5) / 32767.5
-
+    else:
         np.save("wavedata.npy", data)
-        #os.system("./src/process_wave_data wavedata.npy")
         os.system("nim -r c ./src/process_wave_data wavedata.npy")
         data = np.load("wavedata_preprocessed.npy")
         data = data[::-1, :]
 
-    fig, ax = plt.subplots(1, 1, figsize=(16, 10))
-    plt.subplots_adjust(left=0.05, bottom=0.05, top=0.95, right=0.95)
-    plt.imshow(data, aspect='auto')
-    plt.show()
-    import IPython; IPython.embed()
+        fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+        plt.subplots_adjust(left=0.05, bottom=0.05, top=0.95, right=0.95)
+        plt.imshow(data, aspect='auto')
+        plt.show()
 
 
 def main():

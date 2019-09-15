@@ -34,7 +34,24 @@ my_mask = matplotlib.colors.LinearSegmentedColormap('MyMask', cdict)
 plt.register_cmap(cmap=my_mask)
 
 
-def note_specgram(path, ax, peak=70.0, use_cqt=True):
+def plot_rainbow(ax, C):
+    mag, phase = librosa.core.magphase(C)
+
+    phase_angle = np.angle(phase)
+    phase_unwrapped = np.unwrap(phase_angle)
+    dphase = phase_unwrapped[:, 1:] - phase_unwrapped[:, :-1]
+    #dphase = np.concatenate([phase_unwrapped[:, 0:1], dphase], axis=1) / np.pi
+    dphase = np.concatenate([np.zeros((dphase.shape[0], 1)), dphase], axis=1) / np.pi
+
+    # mag = (librosa.logamplitude(mag ** 2, amin=1e-13, top_db=peak, ref_power=np.max) / peak) + 1
+    mag = librosa.power_to_db(mag ** 2, amin=1e-13, ref=np.max)
+
+    #ax.matshow(phase_angle[::-1, :], cmap=plt.cm.rainbow, aspect="auto")
+    ax.matshow(dphase[::-1, :], cmap=plt.cm.rainbow, aspect="auto")
+    ax.matshow(mag[::-1, :], cmap=my_mask, aspect="auto")
+
+
+def note_specgram(path, ax, use_cqt=True):
 
     # Add several samples together
     if isinstance(path, list):
@@ -63,20 +80,7 @@ def note_specgram(path, ax, peak=70.0, use_cqt=True):
         n_fft = 512
         C = librosa.stft(audio, n_fft=n_fft, win_length=n_fft, hop_length=hop_length, center=True)
 
-    mag, phase = librosa.core.magphase(C)
-
-    phase_angle = np.angle(phase)
-    phase_unwrapped = np.unwrap(phase_angle)
-    dphase = phase_unwrapped[:, 1:] - phase_unwrapped[:, :-1]
-    #dphase = np.concatenate([phase_unwrapped[:, 0:1], dphase], axis=1) / np.pi
-    dphase = np.concatenate([np.zeros((dphase.shape[0], 1)), dphase], axis=1) / np.pi
-
-    # mag = (librosa.logamplitude(mag ** 2, amin=1e-13, top_db=peak, ref_power=np.max) / peak) + 1
-    mag = (librosa.power_to_db(mag ** 2, amin=1e-13, top_db=peak, ref=np.max) / peak) + 1
-
-    #ax.matshow(phase_angle[::-1, :], cmap=plt.cm.rainbow, aspect="auto")
-    ax.matshow(dphase[::-1, :], cmap=plt.cm.rainbow, aspect="auto")
-    ax.matshow(mag[::-1, :], cmap=my_mask, aspect="auto")
+    plot_rainbow(ax, C)
 
 
 def plot_notes(list_of_paths, rows=2, cols=4, col_labels=[], row_labels=[],
@@ -106,8 +110,7 @@ def plot_notes(list_of_paths, rows=2, cols=4, col_labels=[], row_labels=[],
         else:
             ax = axes[row, col]
 
-        print(row, col, path, ax, peak, use_cqt)
-        note_specgram(path, ax, peak, use_cqt)
+        note_specgram(path, ax, use_cqt)
 
         """
         ax.set_xticks([]);
