@@ -185,7 +185,7 @@ def read_wave(filename):
     return sample_rate, wave_data
 
 
-def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True):
+def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True, interactive_plots=False):
     utils.ensure_parent_exists(base_path)
 
     path_midi = "{}.mid".format(base_path)
@@ -218,8 +218,11 @@ def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True):
             #sparsity=0.0,
             tuning=0.0,     # we don't want automatic tuning estimation
         )
-        mag, phase = librosa.core.magphase(C)
+
+        #mag, phase = librosa.core.magphase(C)
+        mag = np.abs(C)
         mag = mag.astype(np.float32)
+
         # 16th notes at 200 bpm are 800 notes/min = 13.3 notes/sec => note duration = 75 ms
         print("Sample rate: {}".format(sr))
         print("Hop duration: {:.1f} ms".format(hop_length / sr * 1000))
@@ -239,51 +242,7 @@ def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True):
             bins_per_note=4,
         )
 
-        #plots = ["default", "rainbow", "gt"]
-        plots = ["gt"]
-        for plot in plots:
-            if plot == "rainbow":
-                fig, ax = plt.subplots(1, 1, figsize=(16, 10))
-                rainbow.plot_rainbow(ax, C)
-            elif plot == "gt":
-                fig, axes = plt.subplots(2, 1, figsize=(16, 10), sharex=True, sharey=True)
-                librosa.display.specshow(
-                    librosa.amplitude_to_db(mag, ref=np.max),
-                    sr=sr,
-                    fmin=lowest_note_hz,
-                    hop_length=hop_length,
-                    bins_per_octave=bins_per_octave,
-                    x_axis='time',
-                    y_axis='cqt_note',
-                    ax=axes[0],
-                )
-                librosa.display.specshow(
-                    groundtruth,
-                    sr=sr,
-                    fmin=lowest_note_hz,
-                    hop_length=hop_length,
-                    bins_per_octave=bins_per_octave,
-                    x_axis='time',
-                    y_axis='cqt_note',
-                    ax=axes[1],
-                )
-            else:
-                fig, ax = plt.subplots(1, 1, figsize=(16, 10))
-                librosa.display.specshow(
-                    librosa.amplitude_to_db(mag, ref=np.max),
-                    sr=sr,
-                    fmin=lowest_note_hz,
-                    hop_length=hop_length,
-                    bins_per_octave=bins_per_octave,
-                    x_axis='time',
-                    y_axis='cqt_note',
-                )
-                plt.colorbar(format='%+2.0f dB')
-
-            fig.tight_layout()
-
-        if len(plots) > 0:
-            plt.show()
+        plot_dataset(C, groundtruth, base_path, sr, lowest_note_hz, hop_length, bins_per_octave, interactive_plots)
 
     else:
         np.save("wavedata.npy", data)
@@ -294,6 +253,97 @@ def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True):
         fig, ax = plt.subplots(1, 1, figsize=(16, 10))
         plt.subplots_adjust(left=0.05, bottom=0.05, top=0.95, right=0.95)
         plt.imshow(data, aspect='auto')
+        plt.show()
+
+
+def plot_dataset(C, groundtruth, base_path, sr, lowest_note_hz, hop_length, bins_per_octave, interactive_plots):
+    mag = np.abs(C)
+    db = librosa.amplitude_to_db(mag, ref=np.max)
+
+    def raw_plot(data, filename, cmap=None):
+        dpi = 72
+        height, width = np.array(data.shape, dtype=float) / dpi
+
+        fig = plt.figure(figsize=(width, height), dpi=dpi)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis('off')
+
+        if cmap is None:
+            cmap = librosa.display.cmap(data)
+
+        ax.imshow(data[::-1, :], interpolation='none', cmap=cmap)
+        fig.savefig(filename, dpi=dpi)
+        plt.close(fig)
+
+    def plot_with_axis_annotations(data, ax=None, with_color_bar=True):
+        librosa.display.specshow(
+            data,
+            sr=sr,
+            fmin=lowest_note_hz,
+            hop_length=hop_length,
+            bins_per_octave=bins_per_octave,
+            x_axis='time',
+            y_axis='cqt_note',
+            ax=ax,
+        )
+
+    raw_plot(
+        groundtruth,
+        "{}_0_gt.png".format(base_path))
+
+    raw_plot(
+        db,
+        "{}_1_db.png".format(base_path))
+
+    raw_plot(
+        db[:, 1:] - db[:, :-1],
+        "{}_delta_t.png".format(base_path), cmap="magma")
+
+    raw_plot(
+        db[1:, :] - db[:-1, :],
+        "{}_delta_b.png".format(base_path), cmap="magma")
+
+    # Value distribution
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+
+    data = mag.flatten()
+    axes[0, 0].hist(data, bins=200)
+    values, base = np.histogram(data, bins=200)
+    cumulative = np.cumsum(values)
+    axes[1, 0].plot(base[:-1], cumulative / len(data), c='blue')
+
+    data = db.flatten()
+    axes[0, 1].hist(data, bins=200)
+    values, base = np.histogram(data, bins=200)
+    cumulative = np.cumsum(values)
+    axes[1, 1].plot(base[:-1], cumulative / len(data), c='blue')
+
+    fig.suptitle(
+        "min(mag) = {}    "
+        "max(mag) = {}    "
+        "min(db) = {}    "
+        "max(db) = {}    ".format(mag.min(), mag.max(), db.min(), db.max()))
+    fig.tight_layout()
+    plt.savefig("{}_value_distribution.png".format(base_path))
+    plt.close(fig)
+
+    # Rainbow
+    fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+    rainbow.plot_rainbow(ax, C)
+    fig.tight_layout()
+    plt.savefig("{}_rainbow.png".format(base_path))
+
+    if interactive_plots:
+        fig, axes = plt.subplots(2, 1, figsize=(16, 10), sharex=True, sharey=True)
+        plot_with_axis_annotations(librosa.amplitude_to_db(mag, ref=np.max), axes[0])
+        plot_with_axis_annotations(groundtruth, axes[1])
+
+        # We need to fetch the QuadMesh instance to pass to colorbar
+        plt.colorbar(axes[0].get_children()[0], ax=axes[0], format='%+2.0f dB')
+        plt.colorbar(axes[1].get_children()[0], ax=axes[1])
+        fig.tight_layout()
+
+    if interactive_plots:
         plt.show()
 
 
