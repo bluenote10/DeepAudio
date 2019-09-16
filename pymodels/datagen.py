@@ -8,6 +8,7 @@ from __future__ import division, print_function
 import argparse
 import os
 import random
+import subprocess
 import sys
 import numpy as np
 
@@ -76,7 +77,7 @@ class MidiFileWrapper(object):
 
     def extract_groundtruth(self, raw_length, sample_rate, hop_length, lowest_note, highest_note, bins_per_note):
         print("Extracting ground truth for {} notes".format(len(self.notes)))
-        raw_data = np.zeros((highest_note - lowest_note + 1, raw_length)).astype(np.int8)
+        raw_data = np.zeros((highest_note - lowest_note + 1, raw_length), dtype=np.int8)
 
         def compute_index(beat):
             t = beat * 60 / self.tempo
@@ -150,6 +151,24 @@ def generate_midi_chromatic_sweep():
     return mfw
 
 
+def generate_midi_instrument_check(program_code):
+    mfw = MidiFileWrapper(60)
+    instrument = setup_instruments(mfw.midi_file, [program_code])[0]
+
+    c4 = 60
+    c1 = c4 - 12 * 3    # 24
+    c8 = c4 + 12 * 4    # 108
+
+    t = 1.0
+    for pitch in range(c1, c8+1):
+        volume = 100
+        duration = 1.0
+        mfw.add_note(instrument, pitch, t, duration, volume)
+        t += duration
+
+    return mfw
+
+
 def generate_midi_random_single_notes():
     mfw = MidiFileWrapper(60)
     instruments = setup_default_instruments(mfw.midi_file)
@@ -172,8 +191,14 @@ def store_midi_and_wave(midi_file, path_midi, path_wave):
         midi_file.writeFile(f_binary)
 
     print("Writing WAVE: {}".format(path_wave))
-    os.system("fluidsynth -F /tmp/output_stereo.wav /usr/share/sounds/sf2/FluidR3_GM.sf2 '{}'".format(path_midi))
-    os.system("sox /tmp/output_stereo.wav '{}' channels 1".format(path_wave))
+    subprocess.check_output(
+        "fluidsynth -F /tmp/output_stereo.wav /usr/share/sounds/sf2/FluidR3_GM.sf2 '{}'".format(path_midi),
+        shell=True,
+    )
+    subprocess.check_output(
+        "sox /tmp/output_stereo.wav '{}' channels 1".format(path_wave),
+        shell=True,
+    )
 
 
 def read_wave(filename):
@@ -347,14 +372,36 @@ def plot_dataset(C, groundtruth, base_path, sr, lowest_note_hz, hop_length, bins
         plt.show()
 
 
+def instrument_checks():
+    programs = [
+        (midi_constants.PIANO, "piano"),
+        (midi_constants.EPIANO1, "epiano1"),
+        (midi_constants.NYLON_GUITAR, "guitar_nylon"),
+        (midi_constants.CLEAN_GUITAR, "guitar_clean"),
+        (midi_constants.OVERDRIVEN_GUITAR, "guitar_overdriven"),
+        (midi_constants.DISTORTION_GUITAR, "guitar_distortion"),
+    ]
+    for program_code, program_name in programs:
+        output_path = utils.path_rel_to_base(
+            "data", "instrument_checks", "{}_{}".format(program_code, program_name)
+        )
+        mfw = generate_midi_instrument_check(program_code)
+        generate_dataset(mfw, output_path, audio_preview=False)
+
+
 def main():
-    training_data_dir = utils.path_rel_to_base("data")
-    output_path = os.path.join(training_data_dir, "train", "dataset_001")
+    mode = "instrument_check"
 
-    midi_file = generate_midi_chromatic_sweep()
-    #midi_file = generate_midi_random_single_notes()
+    if mode == "instrument_check":
+        instrument_checks()
 
-    generate_dataset(midi_file, output_path, audio_preview=False)
+    else:
+        output_path = utils.path_rel_to_base("data", "train", "dataset_001")
+
+        midi_file = generate_midi_chromatic_sweep()
+        #midi_file = generate_midi_random_single_notes()
+
+        generate_dataset(midi_file, output_path, audio_preview=False)
 
 
 if __name__ == "__main__":
