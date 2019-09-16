@@ -77,7 +77,7 @@ class MidiFileWrapper(object):
 
     def extract_groundtruth(self, raw_length, sample_rate, hop_length, lowest_note, highest_note, bins_per_note):
         print("Extracting ground truth for {} notes".format(len(self.notes)))
-        raw_data = np.zeros((highest_note - lowest_note + 1, raw_length), dtype=np.int8)
+        raw_data = np.zeros(((highest_note - lowest_note) * bins_per_note, raw_length), dtype=np.int8)
 
         def compute_index(beat):
             t = beat * 60 / self.tempo
@@ -223,6 +223,7 @@ def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True, interact
     sr, wave_data = read_wave(path_wave)
 
     if use_cqt:
+        print("Transforming data")
         bins_per_note = 4
         bins_per_octave = 12 * bins_per_note
         n_octaves = 9
@@ -244,9 +245,7 @@ def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True, interact
             tuning=0.0,     # we don't want automatic tuning estimation
         )
 
-        #mag, phase = librosa.core.magphase(C)
-        mag = np.abs(C)
-        mag = mag.astype(np.float32)
+        mag = np.abs(C).astype(np.float32)
 
         # 16th notes at 200 bpm are 800 notes/min = 13.3 notes/sec => note duration = 75 ms
         print("Sample rate: {}".format(sr))
@@ -262,11 +261,18 @@ def generate_dataset(mfw, base_path, audio_preview=False, use_cqt=True, interact
             raw_length=len(wave_data),
             sample_rate=sr,
             lowest_note=lowest_note_midi,
-            highest_note=lowest_note_midi + n_octaves * bins_per_octave - 1,
+            highest_note=lowest_note_midi + n_octaves * 12,
             hop_length=hop_length,
             bins_per_note=4,
         )
 
+        print("Storing dataset")
+        path_X = "{}_X.npy".format(base_path)
+        path_Y = "{}_Y.npy".format(base_path)
+        np.save(path_X, mag)
+        np.save(path_Y, groundtruth)
+
+        print("Generating plots")
         plot_dataset(C, groundtruth, base_path, sr, lowest_note_hz, hop_length, bins_per_octave, interactive_plots)
 
     else:
@@ -390,7 +396,8 @@ def instrument_checks():
 
 
 def main():
-    mode = "instrument_check"
+    #mode = "instrument_check"
+    mode = "gen_data"
 
     if mode == "instrument_check":
         instrument_checks()
@@ -398,8 +405,8 @@ def main():
     else:
         output_path = utils.path_rel_to_base("data", "train", "dataset_001")
 
-        midi_file = generate_midi_chromatic_sweep()
-        #midi_file = generate_midi_random_single_notes()
+        #midi_file = generate_midi_chromatic_sweep()
+        midi_file = generate_midi_random_single_notes()
 
         generate_dataset(midi_file, output_path, audio_preview=False)
 
